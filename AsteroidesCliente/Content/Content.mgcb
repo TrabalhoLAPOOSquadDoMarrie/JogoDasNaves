@@ -1,0 +1,17 @@
+# This file contains the list of content files for your game.
+# Add files to this list to have them processed by the MonoGame Content Builder.
+#
+# To rebuilt all content, run:
+# mgcb-editor /@:Content.mgcb /build
+
+/outputDir:bin/$(Platform)
+/intermediateDir:obj/$(Platform)
+
+/platform:DesktopGL
+/config:
+/profile:Reach
+/compress:False
+
+#---- Content files
+
+/build:font.spritefont
