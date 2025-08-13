@@ -1351,60 +1351,57 @@ public class TelaJogo
     }
 
     private void ProcessarInputMenuPausa(KeyboardState estadoTeclado)
+{
+    // Navegação no menu (teclas direcionais)
+    if (estadoTeclado.IsKeyDown(Keys.Down) && !_estadoTecladoAnterior.IsKeyDown(Keys.Down))
     {
-        // Navegação - suporte para WASD e setas
-        if ((estadoTeclado.IsKeyDown(Keys.W) && !_estadoTecladoAnterior.IsKeyDown(Keys.W)) ||
-            (estadoTeclado.IsKeyDown(Keys.Up) && !_estadoTecladoAnterior.IsKeyDown(Keys.Up)))
-        {
-            _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa - 1 + _opcoesMenuPausa.Length) % _opcoesMenuPausa.Length;
-        }
-        else if ((estadoTeclado.IsKeyDown(Keys.S) && !_estadoTecladoAnterior.IsKeyDown(Keys.S)) ||
-                 (estadoTeclado.IsKeyDown(Keys.Down) && !_estadoTecladoAnterior.IsKeyDown(Keys.Down)))
-        {
-            _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa + 1) % _opcoesMenuPausa.Length;
-        }
+        _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa + 1) % _opcoesMenuPausa.Length;
+    }
+    else if (estadoTeclado.IsKeyDown(Keys.Up) && !_estadoTecladoAnterior.IsKeyDown(Keys.Up))
+    {
+        _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa - 1 + _opcoesMenuPausa.Length) % _opcoesMenuPausa.Length;
+    }
 
-        // Seleção
-        if (estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter))
+    // Seleção de opção (tecla Enter)
+    if (estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter))
+    {
+        switch ((OpcaoMenuPausa)_opcaoSelecionadaPausa)
         {
-            switch (_opcaoSelecionadaPausa)
-            {
-                case 0: // Retomar
-                    _estadoMenuPausa = EstadoMenuPausa.Fechado;
-                    break;
-                case 1: // Configuracoes
-                    _estadoMenuPausa = EstadoMenuPausa.Configuracoes;
-                    _menuPersonalizacao?.ResetarMenu();
-                    break;
-                case 2: // Recordes
-                    _estadoMenuPausa = EstadoMenuPausa.Recordes;
-                    break;
-                case 3: // Voltar ao Menu
-                    VoltarAoMenu = true;
-                    break;
-                case 4: // Sair
-                    SairDoJogo = true;
-                    break;
-            }
-        }
-
-        // Fechar menu com M
-        if (estadoTeclado.IsKeyDown(Keys.M) && !_estadoTecladoAnterior.IsKeyDown(Keys.M))
-        {
-            if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes)
-            {
-                _estadoMenuPausa = EstadoMenuPausa.Aberto;
-            }
-            else if (_estadoMenuPausa == EstadoMenuPausa.Recordes)
-            {
-                _estadoMenuPausa = EstadoMenuPausa.Aberto;
-            }
-            else
-            {
+            case OpcaoMenuPausa.Retomar:
                 _estadoMenuPausa = EstadoMenuPausa.Fechado;
-            }
+                break;
+                
+            case OpcaoMenuPausa.Configuracoes:
+                _estadoMenuPausa = EstadoMenuPausa.Configuracoes;
+                _menuPersonalizacao.MenuAtivo = true;
+                _menuPersonalizacao.VoltarParaMenuPrincipal = false;
+                break;
+                
+            case OpcaoMenuPausa.Recordes:
+                _estadoMenuPausa = EstadoMenuPausa.Recordes;
+                break;
+                
+            case OpcaoMenuPausa.VoltarMenu:
+                VoltarAoMenu = true;
+                break;
+                
+            case OpcaoMenuPausa.Sair:
+                SairDoJogo = true;
+                break;
         }
     }
+    
+    // Volta para o menu principal de pausa quando estiver em submenu
+    if (estadoTeclado.IsKeyDown(Keys.Escape) && !_estadoTecladoAnterior.IsKeyDown(Keys.Escape))
+    {
+        if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes || _estadoMenuPausa == EstadoMenuPausa.Recordes)
+        {
+            _estadoMenuPausa = EstadoMenuPausa.Aberto;
+            if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes)
+                _menuPersonalizacao.MenuAtivo = false;
+        }
+    }
+}
 
     private void DesenharMenuGameOver()
     {
