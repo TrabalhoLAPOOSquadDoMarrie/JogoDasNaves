@@ -41,13 +41,12 @@ public class ServidorAsteroides
             Console.WriteLine("Servidor iniciado! Aguardando conexões...");
             Console.WriteLine("Pressione 'q' para parar o servidor");
 
-            // Inicia as tarefas principais do servidor em paralelo
             var tarefas = new List<Task>
             {
-                Task.Run(AceitarConexoesAsync),      // Aceita novas conexões
-                Task.Run(LoopPrincipalJogoAsync),    // Loop principal do jogo
-                Task.Run(MonitorarClientesAsync),    // Monitora clientes inativos
-                Task.Run(MonitorarEntradaUsuarioAsync) // Monitora entrada do usuário
+                Task.Run(AceitarConexoesAsync),      
+                Task.Run(LoopPrincipalJogoAsync),    
+                Task.Run(MonitorarClientesAsync),    
+                Task.Run(MonitorarEntradaUsuarioAsync) 
             };
 
             await Task.WhenAny(tarefas);

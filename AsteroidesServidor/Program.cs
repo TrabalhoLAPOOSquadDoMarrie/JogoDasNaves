@@ -16,7 +16,6 @@ class Program
 
         try
         {
-            // Permite configurar a porta via argumento de linha de comando
             int porta = 8890;
             if (args.Length > 0 && int.TryParse(args[0], out int portaArg))
             {

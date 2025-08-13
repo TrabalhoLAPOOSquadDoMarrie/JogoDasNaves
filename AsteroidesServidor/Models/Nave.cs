@@ -13,10 +13,11 @@ public class Nave
     public int Pontuacao { get; set; }
     public float Tamanho { get; private set; } = 1.0f; // Tamanho base da nave
 
-    private const float Velocidade = 4f;
+    private const float Velocidade = 5f;
     private const float HalfW = 10, HalfH = 10;
     private const int PontosParaCrescimento = 200; // A cada 200 pontos a nave cresce
     private const float IncrementoTamanho = 0.1f; // Incremento de 10% no tamanho
+    
 
     public Nave(int jogadorId, Vector2 posicaoInicial)
     {

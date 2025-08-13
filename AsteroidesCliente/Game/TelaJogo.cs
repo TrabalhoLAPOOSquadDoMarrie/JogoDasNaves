@@ -254,27 +254,30 @@ public class TelaJogo
         bool novoBaixo = kState.IsKeyDown(Keys.S) || kState.IsKeyDown(Keys.Down);
         bool novoEspaco = kState.IsKeyDown(Keys.Space);
 
-        // Envia movimento se mudou
-        if (novoEsquerda != _esquerda || novoDireita != _direita ||
-            novoCima != _cima || novoBaixo != _baixo)
+        // Atualiza o estado local
+        bool estadoMudou = novoEsquerda != _esquerda || novoDireita != _direita ||
+                           novoCima != _cima || novoBaixo != _baixo;
+    
+        _esquerda = novoEsquerda;
+        _direita = novoDireita;
+        _cima = novoCima;
+        _baixo = novoBaixo;
+    
+        // Envia o estado sempre que qualquer tecla estiver pressionada (mesmo sem mudanças)
+        // ou quando o estado mudar (teclas soltas)
+        if (_meuJogadorId != -1 && 
+            (estadoMudou || _esquerda || _direita || _cima || _baixo))
         {
-            _esquerda = novoEsquerda;
-            _direita = novoDireita;
-            _cima = novoCima;
-            _baixo = novoBaixo;
-
-            if (_meuJogadorId != -1)
+            _ = _clienteRede.EnviarMensagemAsync(new MensagemMovimentoJogador
             {
-                _ = _clienteRede.EnviarMensagemAsync(new MensagemMovimentoJogador
-                {
-                    JogadorId = _meuJogadorId,
-                    Esquerda = _esquerda,
-                    Direita = _direita,
-                    Cima = _cima,
-                    Baixo = _baixo
-                });
-            }
+                JogadorId = _meuJogadorId,
+                Esquerda = _esquerda,
+                Direita = _direita,
+                Cima = _cima,
+                Baixo = _baixo
+            });
         }
+    
 
         // Envia tiro se espaço foi pressionado
         if (novoEspaco && !_espacoAnterior && _meuJogadorId != -1)
