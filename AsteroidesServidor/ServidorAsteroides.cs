@@ -146,7 +146,15 @@ public class ServidorAsteroides
                     
                     Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) entrou no jogo");
                     break;
-
+                
+                case TipoMensagem.PausarJogo:
+                    var msgPause = (MensagemPausarJogo)mensagem;
+                    _estadoJogo.DefinirPausado(msgPause.Pausado);
+                    Console.WriteLine($"Pause solicitado por '{cliente.Nome}' (ID: {cliente.Id}) - Pausado: {msgPause.Pausado}");
+                    // Opcional: avisar todos os clientes do estado de pausa
+                    await BroadcastMensagemAsync(new MensagemPausarJogo { Pausado = msgPause.Pausado });
+                    break;
+                
                 case TipoMensagem.MovimentoJogador:
                     var msgMovimento = (MensagemMovimentoJogador)mensagem;
                     _estadoJogo.AtualizarMovimentoNave(

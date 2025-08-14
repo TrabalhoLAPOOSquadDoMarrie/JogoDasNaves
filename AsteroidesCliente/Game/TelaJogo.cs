@@ -56,6 +56,9 @@ public class TelaJogo
     private bool _espacoAnterior = false;
     private KeyboardState _estadoTecladoAnterior;
 
+    private bool _jogoPausado = false;
+    private List<DadosAsteroide> _asteroidesEmPausa = new List<DadosAsteroide>();
+    
     // Menu de pausa
     private EstadoMenuPausa _estadoMenuPausa = EstadoMenuPausa.Fechado;
     private int _opcaoSelecionadaPausa = 0;
@@ -107,10 +110,14 @@ public class TelaJogo
             if (_estadoMenuPausa == EstadoMenuPausa.Fechado)
             {
                 _estadoMenuPausa = EstadoMenuPausa.Aberto;
+                _jogoPausado = true;
+                CapturarAsteroidesParaPausa();
             }
             else if (_estadoMenuPausa == EstadoMenuPausa.Aberto)
             {
                 _estadoMenuPausa = EstadoMenuPausa.Fechado;
+                _jogoPausado = false;
+                _asteroidesEmPausa.Clear();
             }
         }
         
@@ -187,6 +194,22 @@ public class TelaJogo
         _estadoTecladoAnterior = estadoTeclado;
     }
 
+    private void CapturarAsteroidesParaPausa()
+    {
+        _asteroidesEmPausa.Clear();
+        if (_estadoJogo?.Asteroides == null) return;
+
+        foreach (var a in _estadoJogo.Asteroides)
+        {
+            _asteroidesEmPausa.Add(new DadosAsteroide
+            {
+                Id = a.Id,
+                Posicao = a.Posicao,
+                Raio = a.Raio
+            });
+        }
+    }
+    
     public void Draw(SpriteBatch spriteBatch)
     {
         if (_estadoJogo == null)
@@ -452,11 +475,15 @@ public class TelaJogo
 
     private void DesenharAsteroides()
     {
-        if (_estadoJogo?.Asteroides == null) return;
+        var lista = (_estadoMenuPausa != EstadoMenuPausa.Fechado)
+            ? _asteroidesEmPausa
+            : _estadoJogo?.Asteroides;
 
-        foreach (var asteroide in _estadoJogo.Asteroides)
+        if (lista == null || lista.Count == 0) return;
+
+        foreach (var a in lista)
         {
-            DesenharAsteroideIrregular(asteroide.Posicao, asteroide.Raio);
+            DesenharAsteroideIrregular(a.Posicao, a.Raio);
         }
     }
 

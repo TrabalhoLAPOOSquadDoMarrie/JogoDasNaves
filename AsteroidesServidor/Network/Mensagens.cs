@@ -13,6 +13,7 @@ public enum TipoMensagem
     AtirarTiro,
     DesconectarJogador,
     ReiniciarJogo,
+    PausarJogo,
     
     // Servidor para Cliente
     EstadoJogo,
@@ -171,5 +172,14 @@ public class MensagemReiniciarJogo : MensagemBase
     public MensagemReiniciarJogo()
     {
         Tipo = TipoMensagem.ReiniciarJogo;
+    }
+}
+
+public class MensagemPausarJogo : MensagemBase
+{
+    public bool Pausado { get; set; }
+    public MensagemPausarJogo()
+    {
+        Tipo = TipoMensagem.PausarJogo;
     }
 }
