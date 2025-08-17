@@ -112,12 +112,16 @@ public class TelaJogo
                 _estadoMenuPausa = EstadoMenuPausa.Aberto;
                 _jogoPausado = true;
                 CapturarAsteroidesParaPausa();
+                // Informa o servidor para PAUSAR a simulação
+                _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = true });
             }
             else if (_estadoMenuPausa == EstadoMenuPausa.Aberto)
             {
                 _estadoMenuPausa = EstadoMenuPausa.Fechado;
                 _jogoPausado = false;
                 _asteroidesEmPausa.Clear();
+                // Informa o servidor para RETOMAR a simulação
+                _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = false });
             }
         }
         
@@ -1378,57 +1382,69 @@ public class TelaJogo
     }
 
     private void ProcessarInputMenuPausa(KeyboardState estadoTeclado)
-{
-    // Navegação no menu (teclas direcionais)
-    if (estadoTeclado.IsKeyDown(Keys.Down) && !_estadoTecladoAnterior.IsKeyDown(Keys.Down))
     {
-        _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa + 1) % _opcoesMenuPausa.Length;
-    }
-    else if (estadoTeclado.IsKeyDown(Keys.Up) && !_estadoTecladoAnterior.IsKeyDown(Keys.Up))
-    {
-        _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa - 1 + _opcoesMenuPausa.Length) % _opcoesMenuPausa.Length;
-    }
+        // Navegação no menu (teclas direcionais)
+        if (estadoTeclado.IsKeyDown(Keys.Down) && !_estadoTecladoAnterior.IsKeyDown(Keys.Down))
+        {
+            _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa + 1) % _opcoesMenuPausa.Length;
+        }
+        else if (estadoTeclado.IsKeyDown(Keys.Up) && !_estadoTecladoAnterior.IsKeyDown(Keys.Up))
+        {
+            _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa - 1 + _opcoesMenuPausa.Length) % _opcoesMenuPausa.Length;
+        }
 
-    // Seleção de opção (tecla Enter)
-    if (estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter))
-    {
-        switch ((OpcaoMenuPausa)_opcaoSelecionadaPausa)
+        // Seleção de opção (tecla Enter)
+        if (estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter))
         {
-            case OpcaoMenuPausa.Retomar:
-                _estadoMenuPausa = EstadoMenuPausa.Fechado;
-                break;
-                
-            case OpcaoMenuPausa.Configuracoes:
-                _estadoMenuPausa = EstadoMenuPausa.Configuracoes;
-                _menuPersonalizacao.MenuAtivo = true;
-                _menuPersonalizacao.VoltarParaMenuPrincipal = false;
-                break;
-                
-            case OpcaoMenuPausa.Recordes:
-                _estadoMenuPausa = EstadoMenuPausa.Recordes;
-                break;
-                
-            case OpcaoMenuPausa.VoltarMenu:
-                VoltarAoMenu = true;
-                break;
-                
-            case OpcaoMenuPausa.Sair:
-                SairDoJogo = true;
-                break;
+            switch ((OpcaoMenuPausa)_opcaoSelecionadaPausa)
+            {
+                case OpcaoMenuPausa.Retomar:
+                    _estadoMenuPausa = EstadoMenuPausa.Fechado;
+                    _jogoPausado = false;
+                    _asteroidesEmPausa.Clear();
+                    // Retoma simulação no servidor
+                    _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = false });
+                    break;
+                    
+                case OpcaoMenuPausa.Configuracoes:
+                    _estadoMenuPausa = EstadoMenuPausa.Configuracoes;
+                    _menuPersonalizacao.MenuAtivo = true;
+                    _menuPersonalizacao.VoltarParaMenuPrincipal = false;
+                    break;
+                    
+                case OpcaoMenuPausa.Recordes:
+                    _estadoMenuPausa = EstadoMenuPausa.Recordes;
+                    break;
+                    
+                case OpcaoMenuPausa.VoltarMenu:
+                    // Garante que o servidor retome antes de voltar ao menu
+                    _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = false });
+                    _jogoPausado = false;
+                    _asteroidesEmPausa.Clear();
+                    VoltarAoMenu = true;
+                    break;
+                    
+                case OpcaoMenuPausa.Sair:
+                    // Garante que o servidor retome antes de sair
+                    _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = false });
+                    _jogoPausado = false;
+                    _asteroidesEmPausa.Clear();
+                    SairDoJogo = true;
+                    break;
+            }
+        }
+        
+        // Volta para o menu principal de pausa quando estiver em submenu
+        if (estadoTeclado.IsKeyDown(Keys.Escape) && !_estadoTecladoAnterior.IsKeyDown(Keys.Escape))
+        {
+            if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes || _estadoMenuPausa == EstadoMenuPausa.Recordes)
+            {
+                _estadoMenuPausa = EstadoMenuPausa.Aberto;
+                if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes)
+                    _menuPersonalizacao.MenuAtivo = false;
+            }
         }
     }
-    
-    // Volta para o menu principal de pausa quando estiver em submenu
-    if (estadoTeclado.IsKeyDown(Keys.Escape) && !_estadoTecladoAnterior.IsKeyDown(Keys.Escape))
-    {
-        if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes || _estadoMenuPausa == EstadoMenuPausa.Recordes)
-        {
-            _estadoMenuPausa = EstadoMenuPausa.Aberto;
-            if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes)
-                _menuPersonalizacao.MenuAtivo = false;
-        }
-    }
-}
 
     private void DesenharMenuGameOver()
     {
@@ -1701,3 +1717,4 @@ public class Particula
         Cor = Color.FromNonPremultiplied(Cor.R, Cor.G, Cor.B, (int)(255 * alpha));
     }
 }
+
