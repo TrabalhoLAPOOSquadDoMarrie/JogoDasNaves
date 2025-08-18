@@ -89,6 +89,9 @@ public class TelaJogo
     public bool SairDoJogo { get; private set; }
     public bool ReiniciarJogo => _reiniciarJogo;
 
+    // Indica se este cliente já confirmou o retorno durante a pausa global
+    private bool ConfirmadoLocal => _meuJogadorId != -1 && _pausaConfirmados.Contains(_meuJogadorId);
+
     public TelaJogo(ClienteRede clienteRede, PersonalizacaoJogador? personalizacao, SpriteBatch spriteBatch, GraphicsDeviceManager graphics, SpriteFont font, NivelDificuldade dificuldade = NivelDificuldade.Medio)
     {
         _clienteRede = clienteRede;
@@ -99,12 +102,12 @@ public class TelaJogo
         _graphics = graphics;
         _gerenciadorDificuldade = new GerenciadorDificuldade(dificuldade);
         _gerenciadorRecordes = new GerenciadorRecordes();
+        // Inicializa textura antes de criar menus que a usam
+        _pixelTexture = new Texture2D(spriteBatch.GraphicsDevice, 1, 1);
+        _pixelTexture.SetData(new[] { Color.White });
         _menuPersonalizacao = new MenuPersonalizacao(font, _pixelTexture, personalizacao ?? new PersonalizacaoJogador());
         _clienteRede.MensagemRecebida += ProcessarMensagem;
         _dificuldadeAtual = dificuldade.ToString();
-
-        _pixelTexture = new Texture2D(spriteBatch.GraphicsDevice, 1, 1);
-        _pixelTexture.SetData(new[] { Color.White });
     }
 
     public void Update(GameTime gameTime)
@@ -114,6 +117,13 @@ public class TelaJogo
         // Verifica se o menu de pausa foi ativado/desativado (tecla M)
         if (estadoTeclado.IsKeyDown(Keys.M) && !_estadoTecladoAnterior.IsKeyDown(Keys.M))
         {
+            // Se já confirmamos retorno, ignorar interações com M
+            if (_estadoMenuPausa == EstadoMenuPausa.Aberto && _pausaEmAndamentoUI && ConfirmadoLocal)
+            {
+                _estadoTecladoAnterior = estadoTeclado;
+                return;
+            }
+            
             if (_estadoMenuPausa == EstadoMenuPausa.Fechado)
             {
                 _estadoMenuPausa = EstadoMenuPausa.Aberto;
@@ -150,6 +160,13 @@ public class TelaJogo
         // Se o menu de pausa está aberto, processa apenas input do menu
         if (_estadoMenuPausa != EstadoMenuPausa.Fechado)
         {
+            // Se já confirmamos retorno, não aceita navegação no menu; apenas aguarda
+            if (_pausaEmAndamentoUI && ConfirmadoLocal)
+            {
+                _estadoTecladoAnterior = estadoTeclado;
+                return;
+            }
+
             ProcessarInputMenuPausa(estadoTeclado);
             
             // Atualiza menu de personalização se estiver ativo
@@ -1252,7 +1269,118 @@ public class TelaJogo
                 break;
         }
     }
-        private void DesenharNaveLosango(Vector2 posicao, Color corPrincipal, Color corDetalhes, float tamanho = 1.0f)
+
+    // Adiciona o processamento de input do menu de pausa (navegação e seleção)
+    private void ProcessarInputMenuPausa(KeyboardState estadoTeclado)
+    {
+        // Se estamos aguardando confirmações e já confirmamos localmente,
+        // não aceitar entradas (apenas exibir o painel de aguardando)
+        if (_pausaEmAndamentoUI && ConfirmadoLocal)
+            return;
+
+        // Navegação para cima (W/Up)
+        bool upPressed = (estadoTeclado.IsKeyDown(Keys.W) || estadoTeclado.IsKeyDown(Keys.Up)) &&
+                         !(_estadoTecladoAnterior.IsKeyDown(Keys.W) || _estadoTecladoAnterior.IsKeyDown(Keys.Up));
+        if (upPressed)
+        {
+            _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa - 1 + _opcoesMenuPausa.Length) % _opcoesMenuPausa.Length;
+        }
+
+        // Navegação para baixo (S/Down)
+        bool downPressed = (estadoTeclado.IsKeyDown(Keys.S) || estadoTeclado.IsKeyDown(Keys.Down)) &&
+                           !(_estadoTecladoAnterior.IsKeyDown(Keys.S) || _estadoTecladoAnterior.IsKeyDown(Keys.Down));
+        if (downPressed)
+        {
+            _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa + 1) % _opcoesMenuPausa.Length;
+        }
+
+        // Seleção (Enter)
+        bool enterPressed = estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter);
+        if (enterPressed)
+        {
+            switch (_opcaoSelecionadaPausa)
+            {
+                case 0: // Retomar
+                    // Em consenso, apenas confirma retorno e mantém o menu aberto aguardando os demais
+                    _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo
+                    {
+                        Pausado = false,
+                        JogadorId = _meuJogadorId
+                    });
+                    // Marca localmente nossa confirmação, caso ainda conste como pendente
+                    if (_pausaPendentes.Contains(_meuJogadorId))
+                    {
+                        _pausaPendentes.Remove(_meuJogadorId);
+                        _pausaConfirmados.Add(_meuJogadorId);
+                    }
+                    // Se por alguma razão não estiver em consenso, fecha o menu e retoma
+                    if (!_pausaEmAndamentoUI)
+                    {
+                        _estadoMenuPausa = EstadoMenuPausa.Fechado;
+                        _jogoPausado = false;
+                        _asteroidesEmPausa.Clear();
+                    }
+                    break;
+
+                case 1: // Configuracoes
+                    _estadoMenuPausa = EstadoMenuPausa.Configuracoes;
+                    break;
+
+                case 2: // Recordes
+                    _estadoMenuPausa = EstadoMenuPausa.Recordes;
+                    break;
+
+                case 3: // Voltar ao Menu
+                    VoltarAoMenu = true;
+                    break;
+
+                case 4: // Sair
+                    Sair = true;
+                    SairDoJogo = true;
+                    break;
+            }
+        }
+    }
+
+    // Processa input do menu de Game Over (navegação e seleção)
+    private void ProcessarInputGameOver(KeyboardState estadoTeclado)
+    {
+        // Navegação para cima (W/Up)
+        bool upPressed = (estadoTeclado.IsKeyDown(Keys.W) || estadoTeclado.IsKeyDown(Keys.Up)) &&
+                         !(_estadoTecladoAnterior.IsKeyDown(Keys.W) || _estadoTecladoAnterior.IsKeyDown(Keys.Up));
+        if (upPressed)
+        {
+            _opcaoSelecionadaGameOver = (_opcaoSelecionadaGameOver - 1 + _opcoesGameOver.Length) % _opcoesGameOver.Length;
+        }
+
+        // Navegação para baixo (S/Down)
+        bool downPressed = (estadoTeclado.IsKeyDown(Keys.S) || estadoTeclado.IsKeyDown(Keys.Down)) &&
+                           !(_estadoTecladoAnterior.IsKeyDown(Keys.S) || _estadoTecladoAnterior.IsKeyDown(Keys.Down));
+        if (downPressed)
+        {
+            _opcaoSelecionadaGameOver = (_opcaoSelecionadaGameOver + 1) % _opcoesGameOver.Length;
+        }
+
+        // Seleção (Enter)
+        bool enterPressed = estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter);
+        if (enterPressed)
+        {
+            switch (_opcaoSelecionadaGameOver)
+            {
+                case 0: // Reiniciar Jogo
+                    _reiniciarJogo = true;
+                    break;
+                case 1: // Voltar ao Menu
+                    VoltarAoMenu = true;
+                    break;
+                case 2: // Sair do Jogo
+                    Sair = true;
+                    SairDoJogo = true;
+                    break;
+            }
+        }
+    }
+    private void DesenharNaveLosango(Vector2 posicao, Color corPrincipal, Color corDetalhes, float tamanho = 1.0f)
     {
         int x = (int)posicao.X;
         int y = (int)posicao.Y;
@@ -1407,25 +1535,11 @@ public class TelaJogo
 
     private void DesenharMenuPausa()
     {
-        // Se estiver no menu de configurações, desenha o menu de configurações
-        if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes)
-        {
-            DesenharMenuConfiguracoes();
-            return;
-        }
-
-        // Se estiver no menu de recordes, desenha o menu de recordes
-        if (_estadoMenuPausa == EstadoMenuPausa.Recordes)
-        {
-            DesenharMenuRecordes();
-            return;
-        }
-
         // Fundo semi-transparente
         var fundoRect = new Rectangle(0, 0, _graphics.PreferredBackBufferWidth, _graphics.PreferredBackBufferHeight);
         _spriteBatch.Draw(_pixelTexture, fundoRect, Color.FromNonPremultiplied(0, 0, 0, 150));
 
-        // Painel do menu - maior e mais consistente com o Game Over
+        // Painel do menu
         int larguraMenu = 500;
         int alturaMenu = 400;
         int x = (_graphics.PreferredBackBufferWidth - larguraMenu) / 2;
@@ -1433,28 +1547,87 @@ public class TelaJogo
 
         var painelRect = new Rectangle(x, y, larguraMenu, alturaMenu);
         _spriteBatch.Draw(_pixelTexture, painelRect, Color.FromNonPremultiplied(20, 40, 60, 240));
-
-        // Borda do painel - mais espessa e colorida
         DesenharBorda(painelRect, Color.Cyan, 4);
 
-        // Título principal
+        // Se já confirmou retorno, mostra somente status x/y e faltantes (tem prioridade sobre submenus)
+        if (_pausaEmAndamentoUI && ConfirmadoLocal)
+        {
+            int confirmados = Math.Clamp(_pausaTotal - _pausaPendentes.Count, 0, _pausaTotal);
+            string tituloAguardando = "AGUARDANDO CONFIRMACOES";
+            var tamTituloA = _fonte.MeasureString(tituloAguardando);
+            var posTituloA = new Vector2(x + (larguraMenu - tamTituloA.X) / 2, y + 40);
+            _spriteBatch.DrawString(_fonte, tituloAguardando, posTituloA, Color.Yellow);
+
+            string textoStatus = $"Confirmados: {confirmados}/{_pausaTotal}";
+            var tamStatus = _fonte.MeasureString(textoStatus);
+            var posStatus = new Vector2(x + (larguraMenu - tamStatus.X) / 2, posTituloA.Y + 50);
+            _spriteBatch.DrawString(_fonte, textoStatus, posStatus, Color.Cyan);
+
+            if (_pausaPendentes.Count > 0)
+            {
+                string tituloFaltando = "Faltando:";
+                var tamTitF = _fonte.MeasureString(tituloFaltando);
+                var posTitF = new Vector2(x + (larguraMenu - tamTitF.X) / 2, posStatus.Y + 40);
+                _spriteBatch.DrawString(_fonte, tituloFaltando, posTitF, Color.White);
+
+                var nomesFaltando = _pausaPendentes
+                    .Select(id => _nomesJogadores.TryGetValue(id, out var nome) ? nome : $"Jogador {id}")
+                    .ToList();
+
+                string linhaAtual = string.Empty;
+                List<string> linhas = new();
+                foreach (var nome in nomesFaltando)
+                {
+                    string candidato = string.IsNullOrEmpty(linhaAtual) ? nome : linhaAtual + ", " + nome;
+                    if (_fonte.MeasureString(candidato).X > larguraMenu - 100)
+                    {
+                        if (!string.IsNullOrEmpty(linhaAtual)) linhas.Add(linhaAtual);
+                        linhaAtual = nome;
+                    }
+                    else
+                    {
+                        linhaAtual = candidato;
+                    }
+                }
+                if (!string.IsNullOrEmpty(linhaAtual)) linhas.Add(linhaAtual);
+
+                float yLista = posTitF.Y + 28;
+                foreach (var linha in linhas)
+                {
+                    var tamLinha = _fonte.MeasureString(linha);
+                    var posLinha = new Vector2(x + (larguraMenu - tamLinha.X) / 2, yLista);
+                    _spriteBatch.DrawString(_fonte, linha, posLinha, Color.LightGray);
+                    yLista += 24;
+                }
+            }
+            return;
+        }
+
+        // Se não confirmou, pode estar em submenus
+        if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes)
+        {
+            DesenharMenuConfiguracoes();
+            return;
+        }
+        if (_estadoMenuPausa == EstadoMenuPausa.Recordes)
+        {
+            DesenharMenuRecordes();
+            return;
+        }
+
+        // Menu normal (para quem ainda não confirmou)
         string titulo = "JOGO PAUSADO";
         var tamanhoTitulo = _fonte.MeasureString(titulo);
         var posicaoTitulo = new Vector2(x + (larguraMenu - tamanhoTitulo.X) / 2, y + 30);
         _spriteBatch.DrawString(_fonte, titulo, posicaoTitulo, Color.Cyan);
 
-        // Subtítulo
         string subtitulo = "ESCOLHA UMA OPCAO";
         var tamanhoSubtitulo = _fonte.MeasureString(subtitulo);
         var posicaoSubtitulo = new Vector2(x + (larguraMenu - tamanhoSubtitulo.X) / 2, y + 80);
         _spriteBatch.DrawString(_fonte, subtitulo, posicaoSubtitulo, Color.Yellow);
 
-        // Opções do menu - melhor espaçamento
         Color[] cores = new Color[_opcoesMenuPausa.Length];
-        for (int i = 0; i < cores.Length; i++)
-        {
-            cores[i] = Color.White;
-        }
+        for (int i = 0; i < cores.Length; i++) cores[i] = Color.White;
         cores[_opcaoSelecionadaPausa] = Color.Yellow;
 
         int inicioOpcoes = y + 140;
@@ -1466,189 +1639,18 @@ public class TelaJogo
             var posicaoOpcao = new Vector2(x + (larguraMenu - tamanhoOpcao.X) / 2, inicioOpcoes + i * espacamentoOpcoes);
             _spriteBatch.DrawString(_fonte, _opcoesMenuPausa[i], posicaoOpcao, cores[i]);
 
-            // Indicador de seleção - melhor posicionado
             if (i == _opcaoSelecionadaPausa)
             {
                 var indicadorRect = new Rectangle((int)posicaoOpcao.X - 30, (int)posicaoOpcao.Y + 8, 20, 20);
                 _spriteBatch.Draw(_pixelTexture, indicadorRect, Color.Yellow);
-                
-                // Borda do indicador
                 DesenharBorda(indicadorRect, Color.Orange, 2);
             }
         }
 
-        // Instruções - melhor posicionadas
         string instrucoes = "W/S: Navegar | Enter: Selecionar | M: Confirmar Retorno";
         var tamanhoInstrucoes = _fonte.MeasureString(instrucoes);
         var posicaoInstrucoes = new Vector2(x + (larguraMenu - tamanhoInstrucoes.X) / 2, y + alturaMenu - 40);
         _spriteBatch.DrawString(_fonte, instrucoes, posicaoInstrucoes, Color.Gray);
-
-        // Secção de consenso (x/y e faltantes)
-        if (_pausaEmAndamentoUI && _pausaTotal > 0)
-        {
-            int confirmados = Math.Clamp(_pausaTotal - _pausaPendentes.Count, 0, _pausaTotal);
-            string textoStatus = $"Confirmados: {confirmados}/{_pausaTotal}";
-            var tamanhoStatus = _fonte.MeasureString(textoStatus);
-            var posicaoStatus = new Vector2(x + (larguraMenu - tamanhoStatus.X) / 2, y + alturaMenu - 80);
-            _spriteBatch.DrawString(_fonte, textoStatus, posicaoStatus, Color.Cyan);
-
-            if (_pausaPendentes.Count > 0)
-            {
-                // Monta lista de quem falta
-                var nomesFaltando = _pausaPendentes
-                    .Select(id => _nomesJogadores.TryGetValue(id, out var nome) ? nome : $"Jogador {id}")
-                    .ToList();
-                string tituloFaltando = "Faltando:";
-                var tamTituloF = _fonte.MeasureString(tituloFaltando);
-                var posTituloF = new Vector2(x + (larguraMenu - tamTituloF.X) / 2, (int)posicaoStatus.Y - 30);
-                _spriteBatch.DrawString(_fonte, tituloFaltando, posTituloF, Color.Yellow);
-
-                // Exibe nomes em múltiplas linhas se necessário
-                string linhaAtual = string.Empty;
-                List<string> linhas = new();
-                foreach (var nome in nomesFaltando)
-                {
-                    string candidato = string.IsNullOrEmpty(linhaAtual) ? nome : linhaAtual + ", " + nome;
-                    if (_fonte.MeasureString(candidato).X > larguraMenu - 100)
-                    {
-                        linhas.Add(linhaAtual);
-                        linhaAtual = nome;
-                    }
-                    else
-                    {
-                        linhaAtual = candidato;
-                    }
-                }
-                if (!string.IsNullOrEmpty(linhaAtual)) linhas.Add(linhaAtual);
-
-                float yLista = posTituloF.Y + 24;
-                foreach (var linha in linhas)
-                {
-                    var tamLinha = _fonte.MeasureString(linha);
-                    var posLinha = new Vector2(x + (larguraMenu - tamLinha.X) / 2, yLista);
-                    _spriteBatch.DrawString(_fonte, linha, posLinha, Color.White);
-                    yLista += 22;
-                }
-            }
-        }
-    }
-
-    private void ProcessarInputGameOver(KeyboardState estadoTeclado)
-    {
-        // Navegação - suporte para WASD e setas
-        if ((estadoTeclado.IsKeyDown(Keys.W) && !_estadoTecladoAnterior.IsKeyDown(Keys.W)) ||
-            (estadoTeclado.IsKeyDown(Keys.Up) && !_estadoTecladoAnterior.IsKeyDown(Keys.Up)))
-        {
-            _opcaoSelecionadaGameOver = (_opcaoSelecionadaGameOver - 1 + _opcoesGameOver.Length) % _opcoesGameOver.Length;
-        }
-        else if ((estadoTeclado.IsKeyDown(Keys.S) && !_estadoTecladoAnterior.IsKeyDown(Keys.S)) ||
-                 (estadoTeclado.IsKeyDown(Keys.Down) && !_estadoTecladoAnterior.IsKeyDown(Keys.Down)))
-        {
-            _opcaoSelecionadaGameOver = (_opcaoSelecionadaGameOver + 1) % _opcoesGameOver.Length;
-        }
-
-        // Seleção
-        if (estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter))
-        {
-            switch (_opcaoSelecionadaGameOver)
-            {
-                case 0: // Reiniciar Jogo
-                    _reiniciarJogo = true;
-                    _estadoGameOver = EstadoGameOver.Fechado;
-                    _opcaoSelecionadaGameOver = 0; // Reset da seleção
-                    Console.WriteLine("Solicitando reinicio do jogo...");
-                    break;
-                case 1: // Voltar ao Menu
-                    VoltarAoMenu = true;
-                    break;
-                case 2: // Sair do Jogo
-                    SairDoJogo = true;
-                    break;
-            }
-        }
-
-        // Sair com ESC
-        if (estadoTeclado.IsKeyDown(Keys.Escape) && !_estadoTecladoAnterior.IsKeyDown(Keys.Escape))
-        {
-            SairDoJogo = true;
-        }
-    }
-
-    private void ProcessarInputMenuPausa(KeyboardState estadoTeclado)
-    {
-        // Navegação no menu (teclas direcionais)
-        if (estadoTeclado.IsKeyDown(Keys.Down) && !_estadoTecladoAnterior.IsKeyDown(Keys.Down))
-        {
-            _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa + 1) % _opcoesMenuPausa.Length;
-        }
-        else if (estadoTeclado.IsKeyDown(Keys.Up) && !_estadoTecladoAnterior.IsKeyDown(Keys.Up))
-        {
-            _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa - 1 + _opcoesMenuPausa.Length) % _opcoesMenuPausa.Length;
-        }
-
-        // Seleção de opção (tecla Enter)
-        if (estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter))
-        {
-            switch ((OpcaoMenuPausa)_opcaoSelecionadaPausa)
-            {
-                case OpcaoMenuPausa.Retomar:
-                    // Em consenso, apenas confirma e mantém menu aberto
-                    if (_pausaEmAndamentoUI || _jogoPausado)
-                    {
-                        _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = false, JogadorId = _meuJogadorId });
-                        if (_pausaPendentes.Contains(_meuJogadorId))
-                        {
-                            _pausaPendentes.Remove(_meuJogadorId);
-                            _pausaConfirmados.Add(_meuJogadorId);
-                        }
-                    }
-                    else
-                    {
-                        _estadoMenuPausa = EstadoMenuPausa.Fechado;
-                        _jogoPausado = false;
-                        _asteroidesEmPausa.Clear();
-                        _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = false, JogadorId = _meuJogadorId });
-                    }
-                    break;
-                    
-                case OpcaoMenuPausa.Configuracoes:
-                    _estadoMenuPausa = EstadoMenuPausa.Configuracoes;
-                    _menuPersonalizacao.MenuAtivo = true;
-                    _menuPersonalizacao.VoltarParaMenuPrincipal = false;
-                    break;
-                    
-                case OpcaoMenuPausa.Recordes:
-                    _estadoMenuPausa = EstadoMenuPausa.Recordes;
-                    break;
-                    
-                case OpcaoMenuPausa.VoltarMenu:
-                    // Garante que o servidor retome antes de voltar ao menu
-                    _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = false });
-                    _jogoPausado = false;
-                    _asteroidesEmPausa.Clear();
-                    VoltarAoMenu = true;
-                    break;
-                    
-                case OpcaoMenuPausa.Sair:
-                    // Garante que o servidor retome antes de sair
-                    _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = false });
-                    _jogoPausado = false;
-                    _asteroidesEmPausa.Clear();
-                    SairDoJogo = true;
-                    break;
-            }
-        }
-        
-        // Volta para o menu principal de pausa quando estiver em submenu
-        if (estadoTeclado.IsKeyDown(Keys.Escape) && !_estadoTecladoAnterior.IsKeyDown(Keys.Escape))
-        {
-            if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes || _estadoMenuPausa == EstadoMenuPausa.Recordes)
-            {
-                _estadoMenuPausa = EstadoMenuPausa.Aberto;
-                if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes)
-                    _menuPersonalizacao.MenuAtivo = false;
-            }
-        }
     }
 
     private void DesenharMenuGameOver()
@@ -1676,8 +1678,6 @@ public class TelaJogo
 
         var painelRect = new Rectangle(x, y, larguraMenu, alturaMenu);
         _spriteBatch.Draw(_pixelTexture, painelRect, Color.FromNonPremultiplied(20, 20, 40, 240));
-
-        // Borda do painel - mais espessa e colorida
         DesenharBorda(painelRect, Color.Red, 4);
 
         // Título "GAME OVER"
@@ -1756,7 +1756,7 @@ public class TelaJogo
 
         // Exibir recordes por dificuldade
         int yAtual = y + 80;
-        var dificuldades = new[] { NivelDificuldade.Facil, NivelDificuldade.Medio, NivelDificuldade.Dificil };
+        var dificuldades = new[] { NivelDificuldade.Facil, NivelDificuldade.Medio, NivelDificuldade .Dificil };
         var coresDificuldade = new[] { Color.Green, Color.Yellow, Color.Red };
 
         for (int i = 0; i < dificuldades.Length; i++)
