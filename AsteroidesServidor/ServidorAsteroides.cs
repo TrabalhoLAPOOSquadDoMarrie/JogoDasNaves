@@ -41,13 +41,12 @@ public class ServidorAsteroides
             Console.WriteLine("Servidor iniciado! Aguardando conexões...");
             Console.WriteLine("Pressione 'q' para parar o servidor");
 
-            // Inicia as tarefas principais do servidor em paralelo
             var tarefas = new List<Task>
             {
-                Task.Run(AceitarConexoesAsync),      // Aceita novas conexões
-                Task.Run(LoopPrincipalJogoAsync),    // Loop principal do jogo
-                Task.Run(MonitorarClientesAsync),    // Monitora clientes inativos
-                Task.Run(MonitorarEntradaUsuarioAsync) // Monitora entrada do usuário
+                Task.Run(AceitarConexoesAsync),      
+                Task.Run(LoopPrincipalJogoAsync),    
+                Task.Run(MonitorarClientesAsync),    
+                Task.Run(MonitorarEntradaUsuarioAsync) 
             };
 
             await Task.WhenAny(tarefas);
@@ -147,7 +146,40 @@ public class ServidorAsteroides
                     
                     Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) entrou no jogo");
                     break;
-
+                
+                case TipoMensagem.PausarJogo:
+                    var msgPause = (MensagemPausarJogo)mensagem;
+                    if (msgPause.Pausado)
+                    {
+                        // Inicia pausa global para todos conectados
+                        List<int> ids;
+                        lock (_lockClientes)
+                        {
+                            ids = _clientes.Values.Where(c => c.Conectado).Select(c => c.Id).ToList();
+                        }
+                        _estadoJogo.IniciarPausaGlobal(ids);
+                        await BroadcastMensagemAsync(new MensagemPausarJogo
+                        {
+                            Pausado = true,
+                            PausadosRestantes = _estadoJogo.PausadosRestantes,
+                            JogadorId = cliente.Id // NOVO
+                        });
+                        Console.WriteLine($"Pausa global solicitada por '{cliente.Nome}' (ID: {cliente.Id}). Restantes: {_estadoJogo.PausadosRestantes}");
+                    }
+                    else
+                    {
+                        // Jogador confirma retorno
+                        _estadoJogo.ConfirmarRetorno(cliente.Id);
+                        await BroadcastMensagemAsync(new MensagemPausarJogo
+                        {
+                            Pausado = _estadoJogo.SimulacaoPausada,
+                            PausadosRestantes = _estadoJogo.PausadosRestantes,
+                            JogadorId = cliente.Id // NOVO
+                        });
+                        Console.WriteLine($"Retorno confirmado por '{cliente.Nome}' (ID: {cliente.Id}). Restantes: {_estadoJogo.PausadosRestantes}");
+                    }
+                    break;
+                
                 case TipoMensagem.MovimentoJogador:
                     var msgMovimento = (MensagemMovimentoJogador)mensagem;
                     _estadoJogo.AtualizarMovimentoNave(
@@ -347,6 +379,17 @@ public class ServidorAsteroides
 
             _estadoJogo.RemoverNave(cliente.Id);
             cliente.Desconectar();
+
+            // Se estava em pausa global, a desconexão conta como confirmação de retorno
+            if (_estadoJogo.SimulacaoEstaPausada())
+            {
+                _estadoJogo.ConfirmarRetorno(cliente.Id);
+                await BroadcastMensagemAsync(new MensagemPausarJogo
+                {
+                    Pausado = _estadoJogo.SimulacaoPausada,
+                    PausadosRestantes = _estadoJogo.PausadosRestantes
+                });
+            }
 
             // Notifica outros clientes sobre a desconexão
             await BroadcastMensagemAsync(new MensagemJogadorDesconectado

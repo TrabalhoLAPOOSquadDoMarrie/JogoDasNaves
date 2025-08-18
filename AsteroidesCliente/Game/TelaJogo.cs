@@ -56,6 +56,9 @@ public class TelaJogo
     private bool _espacoAnterior = false;
     private KeyboardState _estadoTecladoAnterior;
 
+    private bool _jogoPausado = false;
+    private List<DadosAsteroide> _asteroidesEmPausa = new List<DadosAsteroide>();
+    
     // Menu de pausa
     private EstadoMenuPausa _estadoMenuPausa = EstadoMenuPausa.Fechado;
     private int _opcaoSelecionadaPausa = 0;
@@ -74,10 +77,20 @@ public class TelaJogo
 
     private readonly Texture2D _pixelTexture;
 
+    // Rastreamento de pausa global (consenso)
+    private readonly Dictionary<int, string> _nomesJogadores = new();
+    private readonly HashSet<int> _pausaPendentes = new();
+    private readonly HashSet<int> _pausaConfirmados = new();
+    private int _pausaTotal = 0;
+    private bool _pausaEmAndamentoUI = false;
+
     public bool Sair { get; private set; }
     public bool VoltarAoMenu { get; private set; }
     public bool SairDoJogo { get; private set; }
     public bool ReiniciarJogo => _reiniciarJogo;
+
+    // Indica se este cliente já confirmou o retorno durante a pausa global
+    private bool ConfirmadoLocal => _meuJogadorId != -1 && _pausaConfirmados.Contains(_meuJogadorId);
 
     public TelaJogo(ClienteRede clienteRede, PersonalizacaoJogador? personalizacao, SpriteBatch spriteBatch, GraphicsDeviceManager graphics, SpriteFont font, NivelDificuldade dificuldade = NivelDificuldade.Medio)
     {
@@ -89,34 +102,71 @@ public class TelaJogo
         _graphics = graphics;
         _gerenciadorDificuldade = new GerenciadorDificuldade(dificuldade);
         _gerenciadorRecordes = new GerenciadorRecordes();
+        // Inicializa textura antes de criar menus que a usam
+        _pixelTexture = new Texture2D(spriteBatch.GraphicsDevice, 1, 1);
+        _pixelTexture.SetData(new[] { Color.White });
         _menuPersonalizacao = new MenuPersonalizacao(font, _pixelTexture, personalizacao ?? new PersonalizacaoJogador());
         _clienteRede.MensagemRecebida += ProcessarMensagem;
         _dificuldadeAtual = dificuldade.ToString();
-
-        _pixelTexture = new Texture2D(spriteBatch.GraphicsDevice, 1, 1);
-        _pixelTexture.SetData(new[] { Color.White });
     }
 
     public void Update(GameTime gameTime)
     {
         var estadoTeclado = Keyboard.GetState();
         
-        // Verifica se o menu de pausa foi ativado/desativado (SEMPRE, independente do estado do jogo)
+        // Verifica se o menu de pausa foi ativado/desativado (tecla M)
         if (estadoTeclado.IsKeyDown(Keys.M) && !_estadoTecladoAnterior.IsKeyDown(Keys.M))
         {
+            // Se já confirmamos retorno, ignorar interações com M
+            if (_estadoMenuPausa == EstadoMenuPausa.Aberto && _pausaEmAndamentoUI && ConfirmadoLocal)
+            {
+                _estadoTecladoAnterior = estadoTeclado;
+                return;
+            }
+            
             if (_estadoMenuPausa == EstadoMenuPausa.Fechado)
             {
                 _estadoMenuPausa = EstadoMenuPausa.Aberto;
+                _jogoPausado = true;
+                CapturarAsteroidesParaPausa();
+                // Informa o servidor para PAUSAR a simulação (abre pausa global)
+                _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = true, JogadorId = _meuJogadorId });
             }
             else if (_estadoMenuPausa == EstadoMenuPausa.Aberto)
             {
-                _estadoMenuPausa = EstadoMenuPausa.Fechado;
+                // Se estamos em pausa global (consenso), não feche o menu ao tentar retornar.
+                if (_pausaEmAndamentoUI || _jogoPausado)
+                {
+                    // Apenas confirma retorno e mantém o menu aberto aguardando os demais.
+                    _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = false, JogadorId = _meuJogadorId });
+                    // Marca localmente nossa confirmação (caso ainda não tenha sido refletida pelo broadcast)
+                    if (_pausaPendentes.Contains(_meuJogadorId))
+                    {
+                        _pausaPendentes.Remove(_meuJogadorId);
+                        _pausaConfirmados.Add(_meuJogadorId);
+                    }
+                }
+                else
+                {
+                    // Sem consenso ativo, pode fechar normalmente
+                    _estadoMenuPausa = EstadoMenuPausa.Fechado;
+                    _jogoPausado = false;
+                    _asteroidesEmPausa.Clear();
+                    _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = false, JogadorId = _meuJogadorId });
+                }
             }
         }
         
         // Se o menu de pausa está aberto, processa apenas input do menu
         if (_estadoMenuPausa != EstadoMenuPausa.Fechado)
         {
+            // Se já confirmamos retorno, não aceita navegação no menu; apenas aguarda
+            if (_pausaEmAndamentoUI && ConfirmadoLocal)
+            {
+                _estadoTecladoAnterior = estadoTeclado;
+                return;
+            }
+
             ProcessarInputMenuPausa(estadoTeclado);
             
             // Atualiza menu de personalização se estiver ativo
@@ -187,6 +237,22 @@ public class TelaJogo
         _estadoTecladoAnterior = estadoTeclado;
     }
 
+    private void CapturarAsteroidesParaPausa()
+    {
+        _asteroidesEmPausa.Clear();
+        if (_estadoJogo?.Asteroides == null) return;
+
+        foreach (var a in _estadoJogo.Asteroides)
+        {
+            _asteroidesEmPausa.Add(new DadosAsteroide
+            {
+                Id = a.Id,
+                Posicao = a.Posicao,
+                Raio = a.Raio
+            });
+        }
+    }
+    
     public void Draw(SpriteBatch spriteBatch)
     {
         if (_estadoJogo == null)
@@ -243,9 +309,46 @@ public class TelaJogo
         }
     }
 
-    private void ProcessarInput()
+    private async void ProcessarInput()
     {
+        var estadoTeclado = Keyboard.GetState();
         var kState = Keyboard.GetState();
+        
+        // Verificar tecla ESC para abrir/confirmar no menu de pausa
+        if (estadoTeclado.IsKeyDown(Keys.Escape) && !_estadoTecladoAnterior.IsKeyDown(Keys.Escape))
+        {
+            if (!_jogoPausado && _estadoMenuPausa == EstadoMenuPausa.Fechado)
+            {
+                _estadoMenuPausa = EstadoMenuPausa.Aberto;
+                _jogoPausado = true;
+                
+                // Enviar mensagem para o servidor pausar o jogo para todos os jogadores
+                await _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo
+                {
+                    Pausado = true,
+                    JogadorId = _meuJogadorId
+                });
+                
+                Console.WriteLine($"Menu de pausa aberto e mensagem enviada ao servidor");
+            }
+            else if (_estadoMenuPausa == EstadoMenuPausa.Aberto)
+            {
+                // Em consenso de pausa, confirma retorno mas mantém o menu aberto
+                await _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo
+                {
+                    Pausado = false,
+                    JogadorId = _meuJogadorId
+                });
+                
+                if (_pausaPendentes.Contains(_meuJogadorId))
+                {
+                    _pausaPendentes.Remove(_meuJogadorId);
+                    _pausaConfirmados.Add(_meuJogadorId);
+                }
+                
+                Console.WriteLine("Confirmação de retorno enviada ao servidor (aguardando demais)");
+            }
+        }
 
         // ===== CONTROLES DUPLOS - WASD + Setas + Espaço =====
         bool novoEsquerda = kState.IsKeyDown(Keys.A) || kState.IsKeyDown(Keys.Left);
@@ -254,27 +357,30 @@ public class TelaJogo
         bool novoBaixo = kState.IsKeyDown(Keys.S) || kState.IsKeyDown(Keys.Down);
         bool novoEspaco = kState.IsKeyDown(Keys.Space);
 
-        // Envia movimento se mudou
-        if (novoEsquerda != _esquerda || novoDireita != _direita ||
-            novoCima != _cima || novoBaixo != _baixo)
+        // Atualiza o estado local
+        bool estadoMudou = novoEsquerda != _esquerda || novoDireita != _direita ||
+                           novoCima != _cima || novoBaixo != _baixo;
+    
+        _esquerda = novoEsquerda;
+        _direita = novoDireita;
+        _cima = novoCima;
+        _baixo = novoBaixo;
+    
+        // Envia o estado sempre que qualquer tecla estiver pressionada (mesmo sem mudanças)
+        // ou quando o estado mudar (teclas soltas)
+        if (_meuJogadorId != -1 && 
+            (estadoMudou || _esquerda || _direita || _cima || _baixo))
         {
-            _esquerda = novoEsquerda;
-            _direita = novoDireita;
-            _cima = novoCima;
-            _baixo = novoBaixo;
-
-            if (_meuJogadorId != -1)
+            _ = _clienteRede.EnviarMensagemAsync(new MensagemMovimentoJogador
             {
-                _ = _clienteRede.EnviarMensagemAsync(new MensagemMovimentoJogador
-                {
-                    JogadorId = _meuJogadorId,
-                    Esquerda = _esquerda,
-                    Direita = _direita,
-                    Cima = _cima,
-                    Baixo = _baixo
-                });
-            }
+                JogadorId = _meuJogadorId,
+                Esquerda = _esquerda,
+                Direita = _direita,
+                Cima = _cima,
+                Baixo = _baixo
+            });
         }
+    
 
         // Envia tiro se espaço foi pressionado
         if (novoEspaco && !_espacoAnterior && _meuJogadorId != -1)
@@ -449,11 +555,15 @@ public class TelaJogo
 
     private void DesenharAsteroides()
     {
-        if (_estadoJogo?.Asteroides == null) return;
+        var lista = (_estadoMenuPausa != EstadoMenuPausa.Fechado)
+            ? _asteroidesEmPausa
+            : _estadoJogo?.Asteroides;
 
-        foreach (var asteroide in _estadoJogo.Asteroides)
+        if (lista == null || lista.Count == 0) return;
+
+        foreach (var a in lista)
         {
-            DesenharAsteroideIrregular(asteroide.Posicao, asteroide.Raio);
+            DesenharAsteroideIrregular(a.Posicao, a.Raio);
         }
     }
 
@@ -1028,6 +1138,19 @@ public class TelaJogo
                     }
                 }
                 
+                // Se estivermos em pausa global e o roster mudou (desconexão), ajuste conjunto pendente
+                if (_pausaEmAndamentoUI)
+                {
+                    var idsAtuais = _estadoJogo.Naves.Select(n => n.JogadorId).ToHashSet();
+                    // Remove de pendentes quem saiu
+                    var removidos = _pausaPendentes.Where(id => !idsAtuais.Contains(id)).ToList();
+                    foreach (var id in removidos)
+                    {
+                        _pausaPendentes.Remove(id);
+                        if (_pausaTotal > 0) _pausaTotal = Math.Max(0, _pausaTotal - 1);
+                    }
+                }
+                
                 // Salva recorde quando o jogo termina
                 if (!_jogoAtivo && _pontuacao > 0)
                 {
@@ -1043,6 +1166,21 @@ public class TelaJogo
                 {
                     _meuJogadorId = msgConectado.JogadorId;
                     Console.WriteLine($"Meu ID: {_meuJogadorId}");
+                }
+                // Guarda o nome para exibição
+                _nomesJogadores[msgConectado.JogadorId] = msgConectado.NomeJogador;
+                break;
+
+            case TipoMensagem.JogadorDesconectado:
+                var msgDesc = (MensagemJogadorDesconectado)mensagem;
+                _nomesJogadores.Remove(msgDesc.JogadorId);
+                if (_pausaEmAndamentoUI)
+                {
+                    if (_pausaPendentes.Remove(msgDesc.JogadorId))
+                    {
+                        if (_pausaTotal > 0) _pausaTotal = Math.Max(0, _pausaTotal - 1);
+                    }
+                    _pausaConfirmados.Remove(msgDesc.JogadorId);
                 }
                 break;
 
@@ -1072,9 +1210,177 @@ public class TelaJogo
                     _estadoGameOver = EstadoGameOver.Aberto;
                 }
                 break;
+
+            case TipoMensagem.PausarJogo:
+                var msgPausa = (MensagemPausarJogo)mensagem;
+                
+                if (msgPausa.Pausado)
+                {
+                    // Início ou atualização de pausa global
+                    if (msgPausa.JogadorId != _meuJogadorId)
+                    {
+                        _estadoMenuPausa = EstadoMenuPausa.Aberto;
+                        _jogoPausado = true;
+                        CapturarAsteroidesParaPausa();
+                    }
+                    
+                    // Inicializa rastreamento (apenas na primeira atualização da pausa)
+                    if (!_pausaEmAndamentoUI)
+                    {
+                        _pausaPendentes.Clear();
+                        _pausaConfirmados.Clear();
+                        if (_estadoJogo?.Naves != null)
+                        {
+                            foreach (var n in _estadoJogo.Naves)
+                            {
+                                _pausaPendentes.Add(n.JogadorId);
+                            }
+                            _pausaTotal = _pausaPendentes.Count;
+                        }
+                        else
+                        {
+                            _pausaTotal = Math.Max(_pausaTotal, msgPausa.PausadosRestantes);
+                        }
+                        _pausaEmAndamentoUI = true;
+                    }
+                    
+                    // Se a contagem do servidor diminuiu, considera o ator como confirmado
+                    if (_pausaPendentes.Contains(msgPausa.JogadorId) && msgPausa.PausadosRestantes < _pausaPendentes.Count)
+                    {
+                        _pausaPendentes.Remove(msgPausa.JogadorId);
+                        _pausaConfirmados.Add(msgPausa.JogadorId);
+                    }
+                }
+                else
+                {
+                    // Todos confirmaram retorno
+                    if (msgPausa.PausadosRestantes == 0)
+                    {
+                        _jogoPausado = false;
+                        _asteroidesEmPausa.Clear();
+                        _estadoMenuPausa = EstadoMenuPausa.Fechado;
+                        // Reset de rastreamento
+                        _pausaPendentes.Clear();
+                        _pausaConfirmados.Clear();
+                        _pausaTotal = 0;
+                        _pausaEmAndamentoUI = false;
+                    }
+                }
+                break;
         }
     }
-        private void DesenharNaveLosango(Vector2 posicao, Color corPrincipal, Color corDetalhes, float tamanho = 1.0f)
+
+    // Adiciona o processamento de input do menu de pausa (navegação e seleção)
+    private void ProcessarInputMenuPausa(KeyboardState estadoTeclado)
+    {
+        // Se estamos aguardando confirmações e já confirmamos localmente,
+        // não aceitar entradas (apenas exibir o painel de aguardando)
+        if (_pausaEmAndamentoUI && ConfirmadoLocal)
+            return;
+
+        // Navegação para cima (W/Up)
+        bool upPressed = (estadoTeclado.IsKeyDown(Keys.W) || estadoTeclado.IsKeyDown(Keys.Up)) &&
+                         !(_estadoTecladoAnterior.IsKeyDown(Keys.W) || _estadoTecladoAnterior.IsKeyDown(Keys.Up));
+        if (upPressed)
+        {
+            _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa - 1 + _opcoesMenuPausa.Length) % _opcoesMenuPausa.Length;
+        }
+
+        // Navegação para baixo (S/Down)
+        bool downPressed = (estadoTeclado.IsKeyDown(Keys.S) || estadoTeclado.IsKeyDown(Keys.Down)) &&
+                           !(_estadoTecladoAnterior.IsKeyDown(Keys.S) || _estadoTecladoAnterior.IsKeyDown(Keys.Down));
+        if (downPressed)
+        {
+            _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa + 1) % _opcoesMenuPausa.Length;
+        }
+
+        // Seleção (Enter)
+        bool enterPressed = estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter);
+        if (enterPressed)
+        {
+            switch (_opcaoSelecionadaPausa)
+            {
+                case 0: // Retomar
+                    // Em consenso, apenas confirma retorno e mantém o menu aberto aguardando os demais
+                    _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo
+                    {
+                        Pausado = false,
+                        JogadorId = _meuJogadorId
+                    });
+                    // Marca localmente nossa confirmação, caso ainda conste como pendente
+                    if (_pausaPendentes.Contains(_meuJogadorId))
+                    {
+                        _pausaPendentes.Remove(_meuJogadorId);
+                        _pausaConfirmados.Add(_meuJogadorId);
+                    }
+                    // Se por alguma razão não estiver em consenso, fecha o menu e retoma
+                    if (!_pausaEmAndamentoUI)
+                    {
+                        _estadoMenuPausa = EstadoMenuPausa.Fechado;
+                        _jogoPausado = false;
+                        _asteroidesEmPausa.Clear();
+                    }
+                    break;
+
+                case 1: // Configuracoes
+                    _estadoMenuPausa = EstadoMenuPausa.Configuracoes;
+                    break;
+
+                case 2: // Recordes
+                    _estadoMenuPausa = EstadoMenuPausa.Recordes;
+                    break;
+
+                case 3: // Voltar ao Menu
+                    VoltarAoMenu = true;
+                    break;
+
+                case 4: // Sair
+                    Sair = true;
+                    SairDoJogo = true;
+                    break;
+            }
+        }
+    }
+
+    // Processa input do menu de Game Over (navegação e seleção)
+    private void ProcessarInputGameOver(KeyboardState estadoTeclado)
+    {
+        // Navegação para cima (W/Up)
+        bool upPressed = (estadoTeclado.IsKeyDown(Keys.W) || estadoTeclado.IsKeyDown(Keys.Up)) &&
+                         !(_estadoTecladoAnterior.IsKeyDown(Keys.W) || _estadoTecladoAnterior.IsKeyDown(Keys.Up));
+        if (upPressed)
+        {
+            _opcaoSelecionadaGameOver = (_opcaoSelecionadaGameOver - 1 + _opcoesGameOver.Length) % _opcoesGameOver.Length;
+        }
+
+        // Navegação para baixo (S/Down)
+        bool downPressed = (estadoTeclado.IsKeyDown(Keys.S) || estadoTeclado.IsKeyDown(Keys.Down)) &&
+                           !(_estadoTecladoAnterior.IsKeyDown(Keys.S) || _estadoTecladoAnterior.IsKeyDown(Keys.Down));
+        if (downPressed)
+        {
+            _opcaoSelecionadaGameOver = (_opcaoSelecionadaGameOver + 1) % _opcoesGameOver.Length;
+        }
+
+        // Seleção (Enter)
+        bool enterPressed = estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter);
+        if (enterPressed)
+        {
+            switch (_opcaoSelecionadaGameOver)
+            {
+                case 0: // Reiniciar Jogo
+                    _reiniciarJogo = true;
+                    break;
+                case 1: // Voltar ao Menu
+                    VoltarAoMenu = true;
+                    break;
+                case 2: // Sair do Jogo
+                    Sair = true;
+                    SairDoJogo = true;
+                    break;
+            }
+        }
+    }
+    private void DesenharNaveLosango(Vector2 posicao, Color corPrincipal, Color corDetalhes, float tamanho = 1.0f)
     {
         int x = (int)posicao.X;
         int y = (int)posicao.Y;
@@ -1229,25 +1535,11 @@ public class TelaJogo
 
     private void DesenharMenuPausa()
     {
-        // Se estiver no menu de configurações, desenha o menu de configurações
-        if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes)
-        {
-            DesenharMenuConfiguracoes();
-            return;
-        }
-
-        // Se estiver no menu de recordes, desenha o menu de recordes
-        if (_estadoMenuPausa == EstadoMenuPausa.Recordes)
-        {
-            DesenharMenuRecordes();
-            return;
-        }
-
         // Fundo semi-transparente
         var fundoRect = new Rectangle(0, 0, _graphics.PreferredBackBufferWidth, _graphics.PreferredBackBufferHeight);
         _spriteBatch.Draw(_pixelTexture, fundoRect, Color.FromNonPremultiplied(0, 0, 0, 150));
 
-        // Painel do menu - maior e mais consistente com o Game Over
+        // Painel do menu
         int larguraMenu = 500;
         int alturaMenu = 400;
         int x = (_graphics.PreferredBackBufferWidth - larguraMenu) / 2;
@@ -1255,28 +1547,87 @@ public class TelaJogo
 
         var painelRect = new Rectangle(x, y, larguraMenu, alturaMenu);
         _spriteBatch.Draw(_pixelTexture, painelRect, Color.FromNonPremultiplied(20, 40, 60, 240));
-
-        // Borda do painel - mais espessa e colorida
         DesenharBorda(painelRect, Color.Cyan, 4);
 
-        // Título principal
+        // Se já confirmou retorno, mostra somente status x/y e faltantes (tem prioridade sobre submenus)
+        if (_pausaEmAndamentoUI && ConfirmadoLocal)
+        {
+            int confirmados = Math.Clamp(_pausaTotal - _pausaPendentes.Count, 0, _pausaTotal);
+            string tituloAguardando = "AGUARDANDO CONFIRMACOES";
+            var tamTituloA = _fonte.MeasureString(tituloAguardando);
+            var posTituloA = new Vector2(x + (larguraMenu - tamTituloA.X) / 2, y + 40);
+            _spriteBatch.DrawString(_fonte, tituloAguardando, posTituloA, Color.Yellow);
+
+            string textoStatus = $"Confirmados: {confirmados}/{_pausaTotal}";
+            var tamStatus = _fonte.MeasureString(textoStatus);
+            var posStatus = new Vector2(x + (larguraMenu - tamStatus.X) / 2, posTituloA.Y + 50);
+            _spriteBatch.DrawString(_fonte, textoStatus, posStatus, Color.Cyan);
+
+            if (_pausaPendentes.Count > 0)
+            {
+                string tituloFaltando = "Faltando:";
+                var tamTitF = _fonte.MeasureString(tituloFaltando);
+                var posTitF = new Vector2(x + (larguraMenu - tamTitF.X) / 2, posStatus.Y + 40);
+                _spriteBatch.DrawString(_fonte, tituloFaltando, posTitF, Color.White);
+
+                var nomesFaltando = _pausaPendentes
+                    .Select(id => _nomesJogadores.TryGetValue(id, out var nome) ? nome : $"Jogador {id}")
+                    .ToList();
+
+                string linhaAtual = string.Empty;
+                List<string> linhas = new();
+                foreach (var nome in nomesFaltando)
+                {
+                    string candidato = string.IsNullOrEmpty(linhaAtual) ? nome : linhaAtual + ", " + nome;
+                    if (_fonte.MeasureString(candidato).X > larguraMenu - 100)
+                    {
+                        if (!string.IsNullOrEmpty(linhaAtual)) linhas.Add(linhaAtual);
+                        linhaAtual = nome;
+                    }
+                    else
+                    {
+                        linhaAtual = candidato;
+                    }
+                }
+                if (!string.IsNullOrEmpty(linhaAtual)) linhas.Add(linhaAtual);
+
+                float yLista = posTitF.Y + 28;
+                foreach (var linha in linhas)
+                {
+                    var tamLinha = _fonte.MeasureString(linha);
+                    var posLinha = new Vector2(x + (larguraMenu - tamLinha.X) / 2, yLista);
+                    _spriteBatch.DrawString(_fonte, linha, posLinha, Color.LightGray);
+                    yLista += 24;
+                }
+            }
+            return;
+        }
+
+        // Se não confirmou, pode estar em submenus
+        if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes)
+        {
+            DesenharMenuConfiguracoes();
+            return;
+        }
+        if (_estadoMenuPausa == EstadoMenuPausa.Recordes)
+        {
+            DesenharMenuRecordes();
+            return;
+        }
+
+        // Menu normal (para quem ainda não confirmou)
         string titulo = "JOGO PAUSADO";
         var tamanhoTitulo = _fonte.MeasureString(titulo);
         var posicaoTitulo = new Vector2(x + (larguraMenu - tamanhoTitulo.X) / 2, y + 30);
         _spriteBatch.DrawString(_fonte, titulo, posicaoTitulo, Color.Cyan);
 
-        // Subtítulo
         string subtitulo = "ESCOLHA UMA OPCAO";
         var tamanhoSubtitulo = _fonte.MeasureString(subtitulo);
         var posicaoSubtitulo = new Vector2(x + (larguraMenu - tamanhoSubtitulo.X) / 2, y + 80);
         _spriteBatch.DrawString(_fonte, subtitulo, posicaoSubtitulo, Color.Yellow);
 
-        // Opções do menu - melhor espaçamento
         Color[] cores = new Color[_opcoesMenuPausa.Length];
-        for (int i = 0; i < cores.Length; i++)
-        {
-            cores[i] = Color.White;
-        }
+        for (int i = 0; i < cores.Length; i++) cores[i] = Color.White;
         cores[_opcaoSelecionadaPausa] = Color.Yellow;
 
         int inicioOpcoes = y + 140;
@@ -1288,119 +1639,18 @@ public class TelaJogo
             var posicaoOpcao = new Vector2(x + (larguraMenu - tamanhoOpcao.X) / 2, inicioOpcoes + i * espacamentoOpcoes);
             _spriteBatch.DrawString(_fonte, _opcoesMenuPausa[i], posicaoOpcao, cores[i]);
 
-            // Indicador de seleção - melhor posicionado
             if (i == _opcaoSelecionadaPausa)
             {
                 var indicadorRect = new Rectangle((int)posicaoOpcao.X - 30, (int)posicaoOpcao.Y + 8, 20, 20);
                 _spriteBatch.Draw(_pixelTexture, indicadorRect, Color.Yellow);
-                
-                // Borda do indicador
                 DesenharBorda(indicadorRect, Color.Orange, 2);
             }
         }
 
-        // Instruções - melhor posicionadas
-        string instrucoes = "W/S: Navegar | Enter: Selecionar | M: Fechar Menu";
+        string instrucoes = "W/S: Navegar | Enter: Selecionar | M: Confirmar Retorno";
         var tamanhoInstrucoes = _fonte.MeasureString(instrucoes);
         var posicaoInstrucoes = new Vector2(x + (larguraMenu - tamanhoInstrucoes.X) / 2, y + alturaMenu - 40);
         _spriteBatch.DrawString(_fonte, instrucoes, posicaoInstrucoes, Color.Gray);
-    }
-
-    private void ProcessarInputGameOver(KeyboardState estadoTeclado)
-    {
-        // Navegação - suporte para WASD e setas
-        if ((estadoTeclado.IsKeyDown(Keys.W) && !_estadoTecladoAnterior.IsKeyDown(Keys.W)) ||
-            (estadoTeclado.IsKeyDown(Keys.Up) && !_estadoTecladoAnterior.IsKeyDown(Keys.Up)))
-        {
-            _opcaoSelecionadaGameOver = (_opcaoSelecionadaGameOver - 1 + _opcoesGameOver.Length) % _opcoesGameOver.Length;
-        }
-        else if ((estadoTeclado.IsKeyDown(Keys.S) && !_estadoTecladoAnterior.IsKeyDown(Keys.S)) ||
-                 (estadoTeclado.IsKeyDown(Keys.Down) && !_estadoTecladoAnterior.IsKeyDown(Keys.Down)))
-        {
-            _opcaoSelecionadaGameOver = (_opcaoSelecionadaGameOver + 1) % _opcoesGameOver.Length;
-        }
-
-        // Seleção
-        if (estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter))
-        {
-            switch (_opcaoSelecionadaGameOver)
-            {
-                case 0: // Reiniciar Jogo
-                    _reiniciarJogo = true;
-                    _estadoGameOver = EstadoGameOver.Fechado;
-                    _opcaoSelecionadaGameOver = 0; // Reset da seleção
-                    Console.WriteLine("Solicitando reinicio do jogo...");
-                    break;
-                case 1: // Voltar ao Menu
-                    VoltarAoMenu = true;
-                    break;
-                case 2: // Sair do Jogo
-                    SairDoJogo = true;
-                    break;
-            }
-        }
-
-        // Sair com ESC
-        if (estadoTeclado.IsKeyDown(Keys.Escape) && !_estadoTecladoAnterior.IsKeyDown(Keys.Escape))
-        {
-            SairDoJogo = true;
-        }
-    }
-
-    private void ProcessarInputMenuPausa(KeyboardState estadoTeclado)
-    {
-        // Navegação - suporte para WASD e setas
-        if ((estadoTeclado.IsKeyDown(Keys.W) && !_estadoTecladoAnterior.IsKeyDown(Keys.W)) ||
-            (estadoTeclado.IsKeyDown(Keys.Up) && !_estadoTecladoAnterior.IsKeyDown(Keys.Up)))
-        {
-            _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa - 1 + _opcoesMenuPausa.Length) % _opcoesMenuPausa.Length;
-        }
-        else if ((estadoTeclado.IsKeyDown(Keys.S) && !_estadoTecladoAnterior.IsKeyDown(Keys.S)) ||
-                 (estadoTeclado.IsKeyDown(Keys.Down) && !_estadoTecladoAnterior.IsKeyDown(Keys.Down)))
-        {
-            _opcaoSelecionadaPausa = (_opcaoSelecionadaPausa + 1) % _opcoesMenuPausa.Length;
-        }
-
-        // Seleção
-        if (estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter))
-        {
-            switch (_opcaoSelecionadaPausa)
-            {
-                case 0: // Retomar
-                    _estadoMenuPausa = EstadoMenuPausa.Fechado;
-                    break;
-                case 1: // Configuracoes
-                    _estadoMenuPausa = EstadoMenuPausa.Configuracoes;
-                    _menuPersonalizacao?.ResetarMenu();
-                    break;
-                case 2: // Recordes
-                    _estadoMenuPausa = EstadoMenuPausa.Recordes;
-                    break;
-                case 3: // Voltar ao Menu
-                    VoltarAoMenu = true;
-                    break;
-                case 4: // Sair
-                    SairDoJogo = true;
-                    break;
-            }
-        }
-
-        // Fechar menu com M
-        if (estadoTeclado.IsKeyDown(Keys.M) && !_estadoTecladoAnterior.IsKeyDown(Keys.M))
-        {
-            if (_estadoMenuPausa == EstadoMenuPausa.Configuracoes)
-            {
-                _estadoMenuPausa = EstadoMenuPausa.Aberto;
-            }
-            else if (_estadoMenuPausa == EstadoMenuPausa.Recordes)
-            {
-                _estadoMenuPausa = EstadoMenuPausa.Aberto;
-            }
-            else
-            {
-                _estadoMenuPausa = EstadoMenuPausa.Fechado;
-            }
-        }
     }
 
     private void DesenharMenuGameOver()
@@ -1428,8 +1678,6 @@ public class TelaJogo
 
         var painelRect = new Rectangle(x, y, larguraMenu, alturaMenu);
         _spriteBatch.Draw(_pixelTexture, painelRect, Color.FromNonPremultiplied(20, 20, 40, 240));
-
-        // Borda do painel - mais espessa e colorida
         DesenharBorda(painelRect, Color.Red, 4);
 
         // Título "GAME OVER"
@@ -1508,7 +1756,7 @@ public class TelaJogo
 
         // Exibir recordes por dificuldade
         int yAtual = y + 80;
-        var dificuldades = new[] { NivelDificuldade.Facil, NivelDificuldade.Medio, NivelDificuldade.Dificil };
+        var dificuldades = new[] { NivelDificuldade.Facil, NivelDificuldade.Medio, NivelDificuldade .Dificil };
         var coresDificuldade = new[] { Color.Green, Color.Yellow, Color.Red };
 
         for (int i = 0; i < dificuldades.Length; i++)
@@ -1674,3 +1922,4 @@ public class Particula
         Cor = Color.FromNonPremultiplied(Cor.R, Cor.G, Cor.B, (int)(255 * alpha));
     }
 }
+

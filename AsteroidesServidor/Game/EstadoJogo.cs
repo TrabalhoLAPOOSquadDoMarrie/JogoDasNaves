@@ -14,6 +14,7 @@ public class EstadoJogo
     private readonly Dictionary<int, Asteroide> _asteroides = new();
     private readonly Random _random = new();
     private readonly object _lock = new();
+    private readonly HashSet<int> _jogadoresPausados = new();
 
     private int _proximoIdTiro = 1;
     private int _proximoIdAsteroide = 1;
@@ -45,6 +46,69 @@ public class EstadoJogo
         }
     }
 
+    public bool SimulacaoPausada { get; private set; }
+
+    public int PausadosRestantes
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _jogadoresPausados.Count;
+            }
+        }
+    }
+
+    public void IniciarPausaGlobal(IEnumerable<int> jogadoresIds)
+    {
+        lock (_lock)
+        {
+            SimulacaoPausada = true;
+            _jogadoresPausados.Clear();
+            foreach (var id in jogadoresIds)
+            {
+                _jogadoresPausados.Add(id);
+            }
+            Console.WriteLine($"Pausa global iniciada. Aguardando retornos: {_jogadoresPausados.Count}");
+        }
+    }
+
+    public void ConfirmarRetorno(int jogadorId)
+    {
+        lock (_lock)
+        {
+            if (_jogadoresPausados.Remove(jogadorId))
+            {
+                Console.WriteLine($"Jogador {jogadorId} confirmou retorno. Restantes: {_jogadoresPausados.Count}");
+            }
+            if (_jogadoresPausados.Count == 0 && SimulacaoPausada)
+            {
+                SimulacaoPausada = false;
+                Console.WriteLine("Todos confirmaram retorno. Simulacao retomada.");
+            }
+        }
+    }
+
+    public void DefinirPausaJogador(int jogadorId, bool pausado) // <-- novo
+    {
+        lock (_lock)
+        {
+            if (pausado) _jogadoresPausados.Add(jogadorId);
+            else _jogadoresPausados.Remove(jogadorId);
+            Console.WriteLine(pausado
+                ? $"Jogador {jogadorId} pausou. Pausas ativas: {_jogadoresPausados.Count}"
+                : $"Jogador {jogadorId} retomou. Pausas ativas: {_jogadoresPausados.Count}");
+        }
+    }
+
+    public bool SimulacaoEstaPausada() => SimulacaoPausada;
+
+    public void DefinirPausado(bool pausado)
+    {
+        SimulacaoPausada = pausado;
+        Console.WriteLine(pausado ? "Simulacao pausada" : "Simulacao retomada");
+    }
+    
     /// <summary>
     /// Remove uma nave do jogo
     /// </summary>
@@ -105,6 +169,7 @@ public class EstadoJogo
             // Se o jogo não está ativo, não executa a lógica de atualização
             if (!JogoAtivo)
                 return;
+            if (SimulacaoPausada) return;
 
             _frameCount++;
 
