@@ -1106,6 +1106,29 @@ public class TelaJogo
                     _estadoGameOver = EstadoGameOver.Aberto;
                 }
                 break;
+
+            case TipoMensagem.PausarJogo:
+                var msgPause = (MensagemPausarJogo)mensagem;
+                if (msgPause.Pausado)
+                {
+                    // Se outro jogador acionou a pausa, abre o menu aqui também
+                    if (_estadoMenuPausa == EstadoMenuPausa.Fechado && msgPause.JogadorId != _meuJogadorId)
+                    {
+                        _estadoMenuPausa = EstadoMenuPausa.Aberto;
+                        _jogoPausado = true;
+                        CapturarAsteroidesParaPausa();
+                    }
+                }
+                else
+                {
+                    if (_estadoMenuPausa != EstadoMenuPausa.Fechado)
+                    {
+                        _estadoMenuPausa = EstadoMenuPausa.Fechado;
+                        _jogoPausado = false;
+                        _asteroidesEmPausa.Clear();
+                    }
+                }
+                break;
         }
     }
         private void DesenharNaveLosango(Vector2 posicao, Color corPrincipal, Color corDetalhes, float tamanho = 1.0f)

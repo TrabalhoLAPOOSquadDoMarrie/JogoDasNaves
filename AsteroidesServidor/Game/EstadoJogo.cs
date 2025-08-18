@@ -46,7 +46,49 @@ public class EstadoJogo
         }
     }
 
-    
+    public bool SimulacaoPausada { get; private set; }
+
+    public int PausadosRestantes
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _jogadoresPausados.Count;
+            }
+        }
+    }
+
+    public void IniciarPausaGlobal(IEnumerable<int> jogadoresIds)
+    {
+        lock (_lock)
+        {
+            SimulacaoPausada = true;
+            _jogadoresPausados.Clear();
+            foreach (var id in jogadoresIds)
+            {
+                _jogadoresPausados.Add(id);
+            }
+            Console.WriteLine($"Pausa global iniciada. Aguardando retornos: {_jogadoresPausados.Count}");
+        }
+    }
+
+    public void ConfirmarRetorno(int jogadorId)
+    {
+        lock (_lock)
+        {
+            if (_jogadoresPausados.Remove(jogadorId))
+            {
+                Console.WriteLine($"Jogador {jogadorId} confirmou retorno. Restantes: {_jogadoresPausados.Count}");
+            }
+            if (_jogadoresPausados.Count == 0 && SimulacaoPausada)
+            {
+                SimulacaoPausada = false;
+                Console.WriteLine("Todos confirmaram retorno. Simulacao retomada.");
+            }
+        }
+    }
+
     public void DefinirPausaJogador(int jogadorId, bool pausado) // <-- novo
     {
         lock (_lock)
@@ -58,8 +100,8 @@ public class EstadoJogo
                 : $"Jogador {jogadorId} retomou. Pausas ativas: {_jogadoresPausados.Count}");
         }
     }
-    
-    public bool SimulacaoPausada { get; private set; }
+
+    public bool SimulacaoEstaPausada() => SimulacaoPausada;
 
     public void DefinirPausado(bool pausado)
     {
