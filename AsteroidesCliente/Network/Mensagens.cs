@@ -98,6 +98,7 @@ public class DadosNave
 {
     public int JogadorId { get; set; }
     public Vector2 Posicao { get; set; }
+    public float Rotacao { get; set; } // Ângulo de rotação em radianos
     public bool Viva { get; set; }
     public int Pontuacao { get; set; }
     public float Tamanho { get; set; } = 1.0f;

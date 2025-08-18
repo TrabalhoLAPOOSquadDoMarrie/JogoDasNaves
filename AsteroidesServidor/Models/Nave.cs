@@ -8,12 +8,14 @@ namespace AsteroidesServidor.Models;
 public class Nave
 {
     public Vector2 Posicao { get; set; }
+    public float Rotacao { get; set; } // Ângulo de rotação em radianos
     public int JogadorId { get; set; }
     public bool Viva { get; set; }
     public int Pontuacao { get; set; }
     public float Tamanho { get; private set; } = 1.0f; // Tamanho base da nave
 
     private const float Velocidade = 5f;
+    private const float VelocidadeRotacao = 0.1f; // Velocidade de rotação
     private const float HalfW = 10, HalfH = 10;
     private const int PontosParaCrescimento = 200; // A cada 200 pontos a nave cresce
     private const float IncrementoTamanho = 0.1f; // Incremento de 10% no tamanho
@@ -23,6 +25,7 @@ public class Nave
     {
         JogadorId = jogadorId;
         Posicao = posicaoInicial;
+        Rotacao = 0f; // Inicia apontando para cima
         Viva = true;
         Pontuacao = 0;
         Tamanho = 1.0f;
@@ -33,12 +36,24 @@ public class Nave
     /// </summary>
     public void Atualizar(bool esquerda, bool direita, bool cima, bool baixo, int largura, int altura)
     {
+        // Rotação da nave
+        if (esquerda) Rotacao -= VelocidadeRotacao;
+        if (direita) Rotacao += VelocidadeRotacao;
+
+        // Movimento baseado na orientação atual
         Vector2 direcao = Vector2.Zero;
-        
-        if (esquerda) direcao.X -= 1;
-        if (direita) direcao.X += 1;
-        if (cima) direcao.Y -= 1;
-        if (baixo) direcao.Y += 1;
+        if (cima)
+        {
+            // Move na direção que a nave está apontando
+            direcao.X = (float)Math.Sin(Rotacao);
+            direcao.Y = -(float)Math.Cos(Rotacao); // Negativo porque Y cresce para baixo
+        }
+        if (baixo)
+        {
+            // Move na direção oposta
+            direcao.X = -(float)Math.Sin(Rotacao);
+            direcao.Y = (float)Math.Cos(Rotacao);
+        }
 
         if (direcao != Vector2.Zero)
         {
@@ -58,7 +73,19 @@ public class Nave
     /// </summary>
     public Tiro Atirar(int tiroId)
     {
-        return new Tiro(tiroId, JogadorId, Posicao + new Vector2(0, -12), new Vector2(0, -8));
+        // Calcula a direção do tiro baseada na rotação da nave
+        Vector2 direcaoTiro = new Vector2(
+            (float)Math.Sin(Rotacao),
+            -(float)Math.Cos(Rotacao)
+        );
+        
+        // Posição inicial do tiro (na ponta da nave)
+        Vector2 posicaoTiro = Posicao + direcaoTiro * 12;
+        
+        // Velocidade do tiro na direção da nave
+        Vector2 velocidadeTiro = direcaoTiro * 8;
+        
+        return new Tiro(tiroId, JogadorId, posicaoTiro, velocidadeTiro);
     }
 
     /// <summary>
@@ -95,6 +122,7 @@ public class Nave
     public void Resetar(Vector2 novaPosicao)
     {
         Posicao = novaPosicao;
+        Rotacao = 0f; // Reseta a rotação para apontar para cima
         Viva = true;
         Pontuacao = 0;
         Tamanho = 1.0f;

@@ -389,6 +389,7 @@ public class EstadoJogo
                 {
                     JogadorId = n.JogadorId,
                     Posicao = n.Posicao,
+                    Rotacao = n.Rotacao,
                     Viva = n.Viva,
                     Pontuacao = n.Pontuacao,
                     Tamanho = n.Tamanho
