@@ -7,6 +7,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using AsteroidesCliente.Network;
+using Microsoft.Xna.Framework.Audio;
 using AsteroidesCliente.UI;
 
 namespace AsteroidesCliente.Game;
@@ -39,6 +40,9 @@ public class TelaJogo
     private readonly SpriteBatch _spriteBatch;
     private readonly SpriteFont _font;
     private readonly SpriteFont _fonte;
+    private readonly SoundEffect? _somTiro;
+    private readonly SoundEffect? _somExplosao;
+    private readonly SoundEffect? _somClick;
     private readonly GraphicsDeviceManager _graphics;
     private readonly PersonalizacaoJogador? _personalizacao;
     private readonly GerenciadorDificuldade _gerenciadorDificuldade;
@@ -92,13 +96,16 @@ public class TelaJogo
     // Indica se este cliente já confirmou o retorno durante a pausa global
     private bool ConfirmadoLocal => _meuJogadorId != -1 && _pausaConfirmados.Contains(_meuJogadorId);
 
-    public TelaJogo(ClienteRede clienteRede, PersonalizacaoJogador? personalizacao, SpriteBatch spriteBatch, GraphicsDeviceManager graphics, SpriteFont font, NivelDificuldade dificuldade = NivelDificuldade.Medio)
+    public TelaJogo(ClienteRede clienteRede, PersonalizacaoJogador? personalizacao, SpriteBatch spriteBatch, GraphicsDeviceManager graphics, SpriteFont font, NivelDificuldade dificuldade = NivelDificuldade.Medio, SoundEffect? somTiro = null, SoundEffect? somExplosao = null, SoundEffect? somClick = null)
     {
         _clienteRede = clienteRede;
         _personalizacao = personalizacao;
         _spriteBatch = spriteBatch;
         _font = font;
         _fonte = font; // Usa a mesma fonte para ambas as variáveis
+        _somTiro = somTiro;
+        _somExplosao = somExplosao;
+        _somClick = somClick;
         _graphics = graphics;
         _gerenciadorDificuldade = new GerenciadorDificuldade(dificuldade);
         _gerenciadorRecordes = new GerenciadorRecordes();
@@ -128,6 +135,7 @@ public class TelaJogo
             {
                 _estadoMenuPausa = EstadoMenuPausa.Aberto;
                 _jogoPausado = true;
+                _somClick?.Play(); 
                 CapturarAsteroidesParaPausa();
                 // Informa o servidor para PAUSAR a simulação (abre pausa global)
                 _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = true, JogadorId = _meuJogadorId });
@@ -385,6 +393,7 @@ public class TelaJogo
         // Envia tiro se espaço foi pressionado
         if (novoEspaco && !_espacoAnterior && _meuJogadorId != -1)
         {
+            _somTiro?.Play();
             _ = _clienteRede.EnviarMensagemAsync(new MensagemAtirarTiro
             {
                 JogadorId = _meuJogadorId
@@ -1128,15 +1137,19 @@ public class TelaJogo
                 _estadoJogo = (MensagemEstadoJogo)mensagem;
                 _jogoAtivo = _estadoJogo.JogoAtivo;
                 
-                // Atualiza a pontuação do jogador atual
-                if (_meuJogadorId != -1)
+            // Atualiza a pontuação do jogador atual e toca o som se a pontuação aumentou (asteroide foi atingido)
+            if (_meuJogadorId != -1)
+            {
+                var minhaNave = _estadoJogo.Naves.FirstOrDefault(n => n.JogadorId == _meuJogadorId);
+                if (minhaNave != null)
                 {
-                    var minhaNave = _estadoJogo.Naves.FirstOrDefault(n => n.JogadorId == _meuJogadorId);
-                    if (minhaNave != null)
+                    if (minhaNave.Pontuacao > _pontuacao)
                     {
-                        _pontuacao = minhaNave.Pontuacao;
+                        _somExplosao?.Play();
                     }
+                    _pontuacao = minhaNave.Pontuacao; // Atualiza a pontuação local
                 }
+            }
                 
                 // Se estivermos em pausa global e o roster mudou (desconexão), ajuste conjunto pendente
                 if (_pausaEmAndamentoUI)
@@ -1298,6 +1311,7 @@ public class TelaJogo
         bool enterPressed = estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter);
         if (enterPressed)
         {
+            _somClick?.Play();
             switch (_opcaoSelecionadaPausa)
             {
                 case 0: // Retomar

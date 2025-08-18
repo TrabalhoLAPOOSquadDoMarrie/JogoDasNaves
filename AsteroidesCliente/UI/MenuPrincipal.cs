@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework.Input;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Content;
 using AsteroidesCliente.Game;
+using Microsoft.Xna.Framework.Audio;
 
 namespace AsteroidesCliente.UI;
 
@@ -12,6 +13,7 @@ namespace AsteroidesCliente.UI;
 public class MenuPrincipal
 {
     private readonly SpriteFont _font;
+    private readonly SoundEffect? _somClick;
     public enum EstadoMenu
     {
         MenuInicial,
@@ -48,9 +50,10 @@ public class MenuPrincipal
     public GraphicsDevice? GraphicsDevice { get; set; }
     public ContentManager? Content { get; set; }
 
-    public MenuPrincipal(SpriteFont font)
+    public MenuPrincipal(SpriteFont font, SoundEffect? somClick)
     {
         _font = font;
+        _somClick = somClick;
     }
 
     public void Setup()
@@ -314,6 +317,7 @@ public class MenuPrincipal
                 _opcaoSelecionada = (_opcaoSelecionada + 1) % _opcoesMenu.Length;
                 break;
             case Keys.Enter:
+                _somClick?.Play();
                 switch (_opcaoSelecionada)
                 {
                     case 0: // Jogo Online
@@ -344,6 +348,7 @@ public class MenuPrincipal
             {
                 case Keys.Enter:
                     // Confirma a edição
+                    _somClick?.Play();
                     switch (_campoEditando)
                     {
                         case 0:
@@ -418,6 +423,7 @@ public class MenuPrincipal
                     }
                     break;
                 case Keys.Enter:
+                    _somClick?.Play();
                     if (_opcaoSelecionada == 4) // Voltar (agora é índice 4)
                     {
                         Estado = EstadoMenu.MenuInicial;

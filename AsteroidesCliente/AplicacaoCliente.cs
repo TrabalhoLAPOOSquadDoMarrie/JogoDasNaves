@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework.Input;
 using AsteroidesCliente.Network;
 using AsteroidesCliente.UI;
 using AsteroidesCliente.Game;
+using Microsoft.Xna.Framework.Audio;
 
 namespace AsteroidesCliente;
 
@@ -19,6 +20,10 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
     private GraphicsDeviceManager _graphics;
     private SpriteBatch? _spriteBatch;
     private SpriteFont? _font;
+
+    private SoundEffect? _somTiro;
+    private SoundEffect? _somExplosao;
+    private SoundEffect? _somClick;
 
     private EstadoAplicacao _estadoAtual = EstadoAplicacao.Menu;
     private MenuPrincipal? _menuPrincipal;
@@ -52,7 +57,11 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
             _spriteBatch = new SpriteBatch(GraphicsDevice);
             _font = Content.Load<SpriteFont>("font");
 
-            _menuPrincipal = new MenuPrincipal(_font);
+            _somTiro = Content.Load<SoundEffect>("Sounds/tiro");
+            _somExplosao = Content.Load<SoundEffect>("Sounds/explosao");
+            _somClick = Content.Load<SoundEffect>("Sounds/click");
+
+            _menuPrincipal = new MenuPrincipal(_font, _somClick);
             _menuPrincipal.GraphicsDevice = GraphicsDevice;
             _menuPrincipal.Content = Content;
             _menuPrincipal.IniciarJogo += IniciarJogo;
@@ -255,7 +264,7 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
     {
         if (_clienteRede == null || _spriteBatch == null || _font == null || _menuPrincipal == null) return;
 
-        _telaJogo = new TelaJogo(_clienteRede, _personalizacao, _spriteBatch, _graphics, _font, _menuPrincipal.DificuldadeSelecionada);
+        _telaJogo = new TelaJogo(_clienteRede, _personalizacao, _spriteBatch, _graphics, _font, _menuPrincipal.DificuldadeSelecionada, _somTiro, _somExplosao, _somClick);
         _estadoAtual = EstadoAplicacao.Jogo;
     }
 
@@ -387,7 +396,7 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
                 }
 
                 // Cria nova instância da tela do jogo
-                _telaJogo = new TelaJogo(_clienteRede, _personalizacao, _spriteBatch, _graphics, _font, _menuPrincipal.DificuldadeSelecionada);
+            _telaJogo = new TelaJogo(_clienteRede, _personalizacao, _spriteBatch, _graphics, _font, _menuPrincipal.DificuldadeSelecionada, _somTiro, _somExplosao, _somClick);
                 _estadoAtual = EstadoAplicacao.Jogo;
                 
                 Console.WriteLine("Nova tela de jogo criada com sucesso!");

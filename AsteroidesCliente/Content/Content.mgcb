@@ -15,3 +15,23 @@
 #---- Content files
 
 /build:font.spritefont
+
+#-------------------------------- Sounds --------------------------------#
+
+#begin Sounds/tiro.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/processorParam:Quality=Best
+/build:Sounds/tiro.wav
+
+#begin Sounds/explosao.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/processorParam:Quality=Best
+/build:Sounds/explosao.wav
+
+#begin Sounds/click.wav
+/importer:WavImporter
+/processor:SoundEffectProcessor
+/processorParam:Quality=Best
+/build:Sounds/click.wav
