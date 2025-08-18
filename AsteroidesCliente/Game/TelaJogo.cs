@@ -113,7 +113,7 @@ public class TelaJogo
                 _jogoPausado = true;
                 CapturarAsteroidesParaPausa();
                 // Informa o servidor para PAUSAR a simulação
-                _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = true });
+                _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = true, JogadorId = _meuJogadorId });
             }
             else if (_estadoMenuPausa == EstadoMenuPausa.Aberto)
             {
@@ -121,7 +121,7 @@ public class TelaJogo
                 _jogoPausado = false;
                 _asteroidesEmPausa.Clear();
                 // Informa o servidor para RETOMAR a simulação
-                _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = false });
+                _ = _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo { Pausado = false, JogadorId = _meuJogadorId });
             }
         }
         
@@ -270,9 +270,44 @@ public class TelaJogo
         }
     }
 
-    private void ProcessarInput()
+    private async void ProcessarInput()
     {
+        var estadoTeclado = Keyboard.GetState();
         var kState = Keyboard.GetState();
+        
+        // Verificar tecla ESC para abrir menu de pausa
+        if (estadoTeclado.IsKeyDown(Keys.Escape) && !_estadoTecladoAnterior.IsKeyDown(Keys.Escape))
+        {
+            if (!_jogoPausado && _estadoMenuPausa == EstadoMenuPausa.Fechado)
+            {
+                _estadoMenuPausa = EstadoMenuPausa.Aberto;
+                _jogoPausado = true;
+            
+                // Enviar mensagem para o servidor pausar o jogo para todos os jogadores
+                await _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo
+                {
+                    Pausado = true,
+                    JogadorId = _meuJogadorId
+                });
+            
+                Console.WriteLine($"Menu de pausa aberto e mensagem enviada ao servidor");
+            }
+            else if (_estadoMenuPausa == EstadoMenuPausa.Aberto)
+            {
+                // Fechando o menu de pausa localmente
+                _estadoMenuPausa = EstadoMenuPausa.Fechado;
+                // Mantem jogoPausado = true até que todos confirmem retorno
+            
+                // Enviar mensagem para o servidor informando que retornamos
+                await _clienteRede.EnviarMensagemAsync(new MensagemPausarJogo
+                {
+                    Pausado = false,
+                    JogadorId = _meuJogadorId
+                });
+            
+                Console.WriteLine("Confirmação de retorno enviada ao servidor");
+            }
+        }
 
         // ===== CONTROLES DUPLOS - WASD + Setas + Espaço =====
         bool novoEsquerda = kState.IsKeyDown(Keys.A) || kState.IsKeyDown(Keys.Left);
@@ -1108,24 +1143,39 @@ public class TelaJogo
                 break;
 
             case TipoMensagem.PausarJogo:
-                var msgPause = (MensagemPausarJogo)mensagem;
-                if (msgPause.Pausado)
+                var msgPausa = (MensagemPausarJogo)mensagem;
+            
+                // Se alguém pausou o jogo
+                if (msgPausa.Pausado)
                 {
-                    // Se outro jogador acionou a pausa, abre o menu aqui também
-                    if (_estadoMenuPausa == EstadoMenuPausa.Fechado && msgPause.JogadorId != _meuJogadorId)
+                    // Se não fomos nós que pausamos, abra o menu de pausa
+                    if (msgPausa.JogadorId != _meuJogadorId)
                     {
                         _estadoMenuPausa = EstadoMenuPausa.Aberto;
                         _jogoPausado = true;
+                        // Captura snapshot dos asteroides para congelar a cena
                         CapturarAsteroidesParaPausa();
+                        Console.WriteLine($"Menu de pausa aberto devido à solicitação do jogador {msgPausa.JogadorId}");
+                    }
+                
+                    // Exibe quantos jogadores faltam retornar
+                    if (msgPausa.PausadosRestantes > 0)
+                    {
+                        Console.WriteLine($"Aguardando {msgPausa.PausadosRestantes} jogadores confirmarem retorno");
                     }
                 }
                 else
                 {
-                    if (_estadoMenuPausa != EstadoMenuPausa.Fechado)
+                    // Se todos confirmaram retorno, despause o jogo
+                    if (msgPausa.PausadosRestantes == 0)
                     {
-                        _estadoMenuPausa = EstadoMenuPausa.Fechado;
                         _jogoPausado = false;
                         _asteroidesEmPausa.Clear();
+                        if (_estadoMenuPausa == EstadoMenuPausa.Aberto)
+                        {
+                            _estadoMenuPausa = EstadoMenuPausa.Fechado;
+                            Console.WriteLine("Menu de pausa fechado - todos os jogadores confirmaram retorno");
+                        }
                     }
                 }
                 break;
@@ -1363,6 +1413,8 @@ public class TelaJogo
         _spriteBatch.DrawString(_fonte, instrucoes, posicaoInstrucoes, Color.Gray);
     }
 
+    
+    
     private void ProcessarInputGameOver(KeyboardState estadoTeclado)
     {
         // Navegação - suporte para WASD e setas
