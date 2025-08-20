@@ -119,21 +119,21 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
                     if (_telaJogo?.Sair == true)
                     {
                         _clienteRede?.Desconectar();
+                        // Se a origem foi o menu de Game Over (Sair do Jogo), encerra a aplicação
+                        if (_telaJogo?.SairDoJogo == true)
+                        {
+                            Exit();
+                            return;
+                        }
                         _estadoAtual = EstadoAplicacao.Menu;
                         _telaJogo = null;
                     }
                     else if (_telaJogo?.VoltarAoMenu == true)
                     {
-                        // Volta ao menu sem desconectar - mantém a conexão ativa
+                        // Voltar ao menu principal: desconectar e ir para o menu inicial
+                        DesconectarDoServidor();
                         _estadoAtual = EstadoAplicacao.Menu;
                         _telaJogo = null;
-                        // Redefine o estado do menu para conectado já que mantemos a conexão
-                        _menuPrincipal?.DefinirEstado(MenuPrincipal.EstadoMenu.Conectado);
-                    }
-                    else if (_telaJogo?.ReiniciarJogo == true)
-                    {
-                        // Reinicia o jogo enviando mensagem para o servidor
-                        ReiniciarJogo();
                     }
                     break;
                 case EstadoAplicacao.Personalizacao:
@@ -345,9 +345,10 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
 
     private void VoltarAoJogo()
     {
-        if (_telaJogo != null && _clienteRede != null)
+        // Se ainda estamos conectados, reinicia o jogo no servidor e volta para o jogo
+        if (_clienteRede != null && _menuPrincipal != null)
         {
-            _estadoAtual = EstadoAplicacao.Jogo;
+            ReiniciarJogo();
         }
     }
 
