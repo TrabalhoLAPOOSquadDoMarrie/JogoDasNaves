@@ -131,6 +131,8 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
                         }
                         _estadoAtual = EstadoAplicacao.Menu;
                         _telaJogo = null;
+                        // Evita que a tecla Enter mantida acione a primeira opção do menu
+                        _menuPrincipal?.ResetarInput();
                     }
                     else if (_telaJogo?.VoltarAoMenu == true)
                     {
@@ -138,6 +140,8 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
                         DesconectarDoServidor();
                         _estadoAtual = EstadoAplicacao.Menu;
                         _telaJogo = null;
+                        // Evita leak de Enter ao voltar ao menu
+                        _menuPrincipal?.ResetarInput();
                     }
                     break;
                 case EstadoAplicacao.Personalizacao:
@@ -145,6 +149,8 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
                     if (_menuPersonalizacao?.VoltarParaMenuPrincipal == true)
                     {
                         _estadoAtual = EstadoAplicacao.Menu;
+                        // Opcional: evita entradas persistentes ao voltar
+                        _menuPrincipal?.ResetarInput();
                     }
                     break;
             }
@@ -320,6 +326,8 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
         _meuJogadorId = -1;
         _nomeJogadorAtual = null;
         _menuPrincipal?.DefinirEstado(MenuPrincipal.EstadoMenu.Erro, "Desconectado do servidor");
+        // Evita que uma tecla mantida dispare ações no menu
+        _menuPrincipal?.ResetarInput();
     }
 
     private async Task ConectarAutomaticamente()
@@ -424,6 +432,8 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
             _meuJogadorId = -1;
             _nomeJogadorAtual = null;
             _menuPrincipal?.DefinirEstado(MenuPrincipal.EstadoMenu.MenuInicial);
+            // Evita que Enter mantido acione o menu ao voltar
+            _menuPrincipal?.ResetarInput();
         }
         catch (Exception ex)
         {
@@ -485,6 +495,7 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
             // Em caso de erro, volta ao menu
             _estadoAtual = EstadoAplicacao.Menu;
             _menuPrincipal?.DefinirEstado(MenuPrincipal.EstadoMenu.Erro, "Erro ao reiniciar o jogo");
+            _menuPrincipal?.ResetarInput();
         }
     }
 
