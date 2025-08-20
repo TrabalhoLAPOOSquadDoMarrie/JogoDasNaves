@@ -137,6 +137,13 @@ public class ServidorAsteroides
                     cliente.Nome = msgConectar.NomeJogador;
                     _estadoJogo.AdicionarNave(cliente.Id);
                     
+                    // Se o jogo estava encerrado (pos-Game Over), reinicia automaticamente ao entrar um jogador
+                    if (!_estadoJogo.JogoAtivo)
+                    {
+                        _estadoJogo.ReiniciarJogo();
+                        Console.WriteLine("Jogo reiniciado automaticamente ao conectar novo jogador apos Game Over.");
+                    }
+                    
                     // Notifica todos os clientes sobre o novo jogador
                     await BroadcastMensagemAsync(new MensagemJogadorConectado
                     {

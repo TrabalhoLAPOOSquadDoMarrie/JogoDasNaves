@@ -49,6 +49,7 @@ public class TelaJogo
     private readonly MenuPersonalizacao _menuPersonalizacao;
     private MensagemEstadoJogo? _estadoJogo;
     private int _meuJogadorId = -1;
+    private string? _meuNome;
     private bool _jogoAtivo = true;
     private int _frameCount = 0;
     private int _pontuacao = 0;
@@ -114,6 +115,22 @@ public class TelaJogo
         _menuPersonalizacao = new MenuPersonalizacao(font, _pixelTexture, personalizacao ?? new PersonalizacaoJogador());
         _clienteRede.MensagemRecebida += ProcessarMensagem;
         _dificuldadeAtual = dificuldade.ToString();
+    }
+
+    // Novo: método para liberar/fechar a tela e remover handlers
+    public void Fechar()
+    {
+        try
+        {
+            if (_clienteRede != null)
+            {
+                _clienteRede.MensagemRecebida -= ProcessarMensagem;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"TelaJogo.Fechar: erro ao remover handlers: {ex.Message}");
+        }
     }
 
     public void Update(GameTime gameTime)
@@ -1381,8 +1398,8 @@ public class TelaJogo
             case TipoMensagem.JogadorConectado:
                 var msgConectado = (MensagemJogadorConectado)mensagem;
                 
-                // Modo online: atribui o ID recebido como meu ID
-                if (_meuJogadorId == -1)
+                // Define meu ID somente se ainda nao definido e o nome bate com o meu
+                if (_meuJogadorId == -1 && !string.IsNullOrEmpty(_meuNome) && msgConectado.NomeJogador == _meuNome)
                 {
                     _meuJogadorId = msgConectado.JogadorId;
                     Console.WriteLine($"Meu ID: {_meuJogadorId}");
@@ -1979,6 +1996,18 @@ public class TelaJogo
     private bool EhNovoRecorde()
     {
         return _pontuacao > ObterMelhorRecorde();
+    }
+
+    // Permite definir o ID do jogador deste cliente
+    public void DefinirMeuJogadorId(int id)
+    {
+        _meuJogadorId = id;
+    }
+
+    // Permite definir o nome do jogador deste cliente
+    public void DefinirMeuNome(string nome)
+    {
+        _meuNome = nome;
     }
 
     /// <summary>
