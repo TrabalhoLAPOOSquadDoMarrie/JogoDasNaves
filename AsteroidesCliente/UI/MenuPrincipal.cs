@@ -514,4 +514,11 @@ public class MenuPrincipal
     {
         NomeJogador = nome;
     }
+
+    // Novo: reseta o estado do teclado para evitar que uma tecla mantida (ex: Enter)
+    // dispare ações imediatamente ao retornar ao menu
+    public void ResetarInput()
+    {
+        _estadoTecladoAnterior = Keyboard.GetState();
+    }
 }

@@ -33,6 +33,10 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
     private ClienteRede? _clienteRede;
     private bool _inicializado = false;
 
+    // Novo: rastrear nome/ID do jogador atual para repassar à tela e restaurar controle
+    private string? _nomeJogadorAtual;
+    private int _meuJogadorId = -1;
+
     public AplicacaoCliente()
     {
         _graphics = new GraphicsDeviceManager(this);
@@ -119,21 +123,25 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
                     if (_telaJogo?.Sair == true)
                     {
                         _clienteRede?.Desconectar();
+                        // Se a origem foi o menu de Game Over (Sair do Jogo), encerra a aplicação
+                        if (_telaJogo?.SairDoJogo == true)
+                        {
+                            Exit();
+                            return;
+                        }
                         _estadoAtual = EstadoAplicacao.Menu;
                         _telaJogo = null;
+                        // Evita que a tecla Enter mantida acione a primeira opção do menu
+                        _menuPrincipal?.ResetarInput();
                     }
                     else if (_telaJogo?.VoltarAoMenu == true)
                     {
-                        // Volta ao menu sem desconectar - mantém a conexão ativa
+                        // Voltar ao menu principal: desconectar e ir para o menu inicial
+                        DesconectarDoServidor();
                         _estadoAtual = EstadoAplicacao.Menu;
                         _telaJogo = null;
-                        // Redefine o estado do menu para conectado já que mantemos a conexão
-                        _menuPrincipal?.DefinirEstado(MenuPrincipal.EstadoMenu.Conectado);
-                    }
-                    else if (_telaJogo?.ReiniciarJogo == true)
-                    {
-                        // Reinicia o jogo enviando mensagem para o servidor
-                        ReiniciarJogo();
+                        // Evita leak de Enter ao voltar ao menu
+                        _menuPrincipal?.ResetarInput();
                     }
                     break;
                 case EstadoAplicacao.Personalizacao:
@@ -141,6 +149,8 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
                     if (_menuPersonalizacao?.VoltarParaMenuPrincipal == true)
                     {
                         _estadoAtual = EstadoAplicacao.Menu;
+                        // Opcional: evita entradas persistentes ao voltar
+                        _menuPrincipal?.ResetarInput();
                     }
                     break;
             }
@@ -233,13 +243,28 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
                 return;
             }
 
+            // Registrar handler ANTES de enviar a mensagem de conexão para não perder JogadorConectado
+            _clienteRede.MensagemRecebida += OnMensagemRecebida;
+
+            // Garante um nome válido/único se não informado
+            var nome = string.IsNullOrWhiteSpace(_menuPrincipal.NomeJogador)
+                ? $"Jogador_{Environment.MachineName}_{DateTime.Now:HHmmss}"
+                : _menuPrincipal.NomeJogador.Trim();
+            if (string.IsNullOrWhiteSpace(_menuPrincipal.NomeJogador) || _menuPrincipal.NomeJogador != nome)
+            {
+                _menuPrincipal.DefinirNomeJogador(nome);
+            }
+
+            // Armazena nome atual e reseta ID
+            _nomeJogadorAtual = nome;
+            _meuJogadorId = -1;
+
             await _clienteRede.EnviarMensagemAsync(new MensagemConectarJogador
             {
-                NomeJogador = _menuPrincipal.NomeJogador
+                NomeJogador = _nomeJogadorAtual
             });
 
             _menuPrincipal.DefinirEstado(MenuPrincipal.EstadoMenu.Conectado);
-            _clienteRede.MensagemRecebida += OnMensagemRecebida;
         }
         catch (Exception ex)
         {
@@ -253,10 +278,25 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
 
     private void OnMensagemRecebida(MensagemBase mensagem)
     {
+        // Trata identificação do jogador assim que o servidor confirmar
+        if (mensagem is MensagemJogadorConectado conectadoMsg)
+        {
+            if (!string.IsNullOrEmpty(_nomeJogadorAtual) && conectadoMsg.NomeJogador == _nomeJogadorAtual)
+            {
+                _meuJogadorId = conectadoMsg.JogadorId;
+                Console.WriteLine($"Meu JogadorId definido: {_meuJogadorId}");
+                _telaJogo?.DefinirMeuNome(_nomeJogadorAtual);
+                _telaJogo?.DefinirMeuJogadorId(_meuJogadorId);
+            }
+        }
+
         if (mensagem is MensagemEstadoJogo)
         {
-            if (_clienteRede != null) _clienteRede.MensagemRecebida -= OnMensagemRecebida;
-            IniciarTelaJogo();
+            // Cria a tela do jogo na primeira vez que receber estado
+            if (_telaJogo == null)
+            {
+                IniciarTelaJogo();
+            }
         }
     }
 
@@ -265,13 +305,29 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
         if (_clienteRede == null || _spriteBatch == null || _font == null || _menuPrincipal == null) return;
 
         _telaJogo = new TelaJogo(_clienteRede, _personalizacao, _spriteBatch, _graphics, _font, _menuPrincipal.DificuldadeSelecionada, _somTiro, _somExplosao, _somClick);
+        // Propaga nome e (se já conhecido) o ID do jogador para a tela
+        if (!string.IsNullOrEmpty(_nomeJogadorAtual))
+        {
+            _telaJogo.DefinirMeuNome(_nomeJogadorAtual);
+        }
+        if (_meuJogadorId != -1)
+        {
+            _telaJogo.DefinirMeuJogadorId(_meuJogadorId);
+        }
         _estadoAtual = EstadoAplicacao.Jogo;
     }
 
     private void OnDesconectado()
     {
         _estadoAtual = EstadoAplicacao.Menu;
+        // Garante limpeza da tela e handlers ao perder conexão
+        _telaJogo?.Fechar();
+        _telaJogo = null;
+        _meuJogadorId = -1;
+        _nomeJogadorAtual = null;
         _menuPrincipal?.DefinirEstado(MenuPrincipal.EstadoMenu.Erro, "Desconectado do servidor");
+        // Evita que uma tecla mantida dispare ações no menu
+        _menuPrincipal?.ResetarInput();
     }
 
     private async Task ConectarAutomaticamente()
@@ -304,9 +360,14 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
                 return;
             }
 
+            // Registrar handler antes de enviar a conexão aqui também
+            _clienteRede.MensagemRecebida += OnMensagemRecebida;
+
             // Gerar nome automático baseado no timestamp
             var nomeJogador = $"Jogador_{DateTime.Now:HHmmss}";
             _menuPrincipal.DefinirNomeJogador(nomeJogador);
+            _nomeJogadorAtual = nomeJogador;
+            _meuJogadorId = -1;
 
             await _clienteRede.EnviarMensagemAsync(new MensagemConectarJogador
             {
@@ -315,7 +376,6 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
 
             Console.WriteLine($"Conectado como {nomeJogador}");
             _menuPrincipal.DefinirEstado(MenuPrincipal.EstadoMenu.Conectado);
-            _clienteRede.MensagemRecebida += OnMensagemRecebida;
         }
         catch (Exception ex)
         {
@@ -345,9 +405,10 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
 
     private void VoltarAoJogo()
     {
-        if (_telaJogo != null && _clienteRede != null)
+        // Se ainda estamos conectados, reinicia o jogo no servidor e volta para o jogo
+        if (_clienteRede != null && _menuPrincipal != null)
         {
-            _estadoAtual = EstadoAplicacao.Jogo;
+            ReiniciarJogo();
         }
     }
 
@@ -355,10 +416,24 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
     {
         try
         {
-            _clienteRede?.Desconectar();
+            // Remove handlers da tela antes de descartar
+            _telaJogo?.Fechar();
+
+            if (_clienteRede != null)
+            {
+                // Desinscreve eventos para evitar múltiplas assinaturas ao reconectar
+                _clienteRede.MensagemRecebida -= OnMensagemRecebida;
+                _clienteRede.Desconectado -= OnDesconectado;
+                _clienteRede.Desconectar();
+            }
+
             _clienteRede = null;
             _telaJogo = null;
+            _meuJogadorId = -1;
+            _nomeJogadorAtual = null;
             _menuPrincipal?.DefinirEstado(MenuPrincipal.EstadoMenu.MenuInicial);
+            // Evita que Enter mantido acione o menu ao voltar
+            _menuPrincipal?.ResetarInput();
         }
         catch (Exception ex)
         {
@@ -392,11 +467,21 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
                 if (_telaJogo != null)
                 {
                     // Remove event handlers para evitar vazamentos de memória
+                    _telaJogo.Fechar();
                     _telaJogo = null;
                 }
 
                 // Cria nova instância da tela do jogo
-            _telaJogo = new TelaJogo(_clienteRede, _personalizacao, _spriteBatch, _graphics, _font, _menuPrincipal.DificuldadeSelecionada, _somTiro, _somExplosao, _somClick);
+                _telaJogo = new TelaJogo(_clienteRede, _personalizacao, _spriteBatch, _graphics, _font, _menuPrincipal.DificuldadeSelecionada, _somTiro, _somExplosao, _somClick);
+                // Propaga nome/ID novamente
+                if (!string.IsNullOrEmpty(_nomeJogadorAtual))
+                {
+                    _telaJogo.DefinirMeuNome(_nomeJogadorAtual);
+                }
+                if (_meuJogadorId != -1)
+                {
+                    _telaJogo.DefinirMeuJogadorId(_meuJogadorId);
+                }
                 _estadoAtual = EstadoAplicacao.Jogo;
                 
                 Console.WriteLine("Nova tela de jogo criada com sucesso!");
@@ -410,6 +495,7 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
             // Em caso de erro, volta ao menu
             _estadoAtual = EstadoAplicacao.Menu;
             _menuPrincipal?.DefinirEstado(MenuPrincipal.EstadoMenu.Erro, "Erro ao reiniciar o jogo");
+            _menuPrincipal?.ResetarInput();
         }
     }
 
