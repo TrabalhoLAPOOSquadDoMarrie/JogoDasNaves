@@ -572,124 +572,17 @@ public class TelaJogo
 
         foreach (var a in lista)
         {
-            DesenharAsteroideIrregular(a.Posicao, a.Raio);
+            // --- INÍCIO DA ALTERAÇÃO ---
+            // Desenha o sprite do asteroide em vez da forma geométrica
+            var textura = PersonalizacaoJogador.TexturasAsteroide[a.TipoTextura];
+            var origem = new Vector2(textura.Width / 2, textura.Height / 2);
+            // Ajusta o tamanho do sprite para corresponder ao raio do asteroide
+            float escala = (a.Raio * 2) / textura.Width;
+            _spriteBatch.Draw(textura, a.Posicao, null, Color.White, 0f, origem, escala, SpriteEffects.None, 0f);
+            // --- FIM DA ALTERAÇÃO ---
         }
-    }
-
-    private void DesenharAsteroideIrregular(Vector2 posicao, float raio)
-    {
-        int x = (int)posicao.X;
-        int y = (int)posicao.Y;
-        int raioInt = (int)raio;
-        
-        // Cria pontos irregulares para o asteroide
-        List<Vector2> pontos = new List<Vector2>();
-        int numPontos = 8 + (int)(raio / 5); // Mais pontos para asteroides maiores
-        
-        for (int i = 0; i < numPontos; i++)
-        {
-            float angulo = (float)(2 * Math.PI * i / numPontos);
-            
-            // Adiciona variação aleatória ao raio para criar irregularidade
-            float variacaoRaio = raio * (0.7f + 0.6f * (float)Math.Sin(angulo * 3 + posicao.X * 0.01f));
-            
-            float px = x + variacaoRaio * (float)Math.Cos(angulo);
-            float py = y + variacaoRaio * (float)Math.Sin(angulo);
-            
-            pontos.Add(new Vector2(px, py));
-        }
-        
-        // Usa as cores do meteoro baseadas na personalização
-        var (corInterior, corContorno) = _personalizacao?.ObterCoresMeteoro() ?? (Color.SaddleBrown, Color.Brown);
-        
-        // Preenche o asteroide
-        PreencherPoligono(pontos, corInterior);
-        
-        // Desenha o contorno
-        for (int i = 0; i < pontos.Count; i++)
-        {
-            Vector2 p1 = pontos[i];
-            Vector2 p2 = pontos[(i + 1) % pontos.Count];
-            DesenharLinha(p1, p2, corContorno, 2);
-        }
-        
-        // Adiciona detalhes de crateras
-        DesenharCrateras(posicao, raioInt);
     }
     
-    private void DesenharLinha(Vector2 inicio, Vector2 fim, Color cor, int espessura = 1)
-
-    {
-
-        Vector2 diferenca = fim - inicio;
-
-        float distancia = diferenca.Length();
-
-        float angulo = (float)Math.Atan2(diferenca.Y, diferenca.X);
-
-        
-
-        var rect = new Rectangle((int)inicio.X, (int)inicio.Y, (int)distancia, espessura);
-
-        _spriteBatch.Draw(_pixelTexture, rect, null, cor, angulo, Vector2.Zero, SpriteEffects.None, 0);
-
-    }
-
-    private void PreencherPoligono(List<Vector2> pontos, Color cor)
-    {
-        if (pontos.Count < 3) return;
-
-        // Encontra os limites do polígono
-        float minY = pontos.Min(p => p.Y);
-        float maxY = pontos.Max(p => p.Y);
-
-        for (int y = (int)minY; y <= (int)maxY; y++)
-        {
-            List<float> intersecoes = new List<float>();
-
-            for (int i = 0; i < pontos.Count; i++)
-            {
-                Vector2 p1 = pontos[i];
-                Vector2 p2 = pontos[(i + 1) % pontos.Count];
-
-                if ((p1.Y <= y && p2.Y > y) || (p2.Y <= y && p1.Y > y))
-                {
-                    float x = p1.X + (y - p1.Y) * (p2.X - p1.X) / (p2.Y - p1.Y);
-                    intersecoes.Add(x);
-                }
-            }
-
-            intersecoes.Sort();
-            for (int i = 0; i < intersecoes.Count - 1; i += 2)
-            {
-                for (int x = (int)intersecoes[i]; x <= (int)intersecoes[i + 1]; x++)
-                {
-                    var rect = new Rectangle(x, y, 1, 1);
-                    _spriteBatch.Draw(_pixelTexture, rect, cor);
-                }
-            }
-        }
-    }
-
-    private void DesenharCrateras(Vector2 centro, int raio)
-    {
-        // Adiciona algumas crateras pequenas para detalhes
-        int numCrateras = Math.Max(2, raio / 8);
-        
-        for (int i = 0; i < numCrateras; i++)
-        {
-            float angulo = (float)(2 * Math.PI * i / numCrateras + centro.X * 0.01f);
-            float distancia = raio * 0.3f * (0.5f + 0.5f * (float)Math.Sin(angulo * 2));
-            
-            int crateraX = (int)(centro.X + distancia * Math.Cos(angulo));
-            int crateraY = (int)(centro.Y + distancia * Math.Sin(angulo));
-            int crateraTamanho = Math.Max(1, raio / 12);
-            
-            var crateraRect = new Rectangle(crateraX - crateraTamanho, crateraY - crateraTamanho, 
-                                          crateraTamanho * 2, crateraTamanho * 2);
-            _spriteBatch.Draw(_pixelTexture, crateraRect, Color.Black);
-        }
-    }
 
     private void DesenharTiros()
     {

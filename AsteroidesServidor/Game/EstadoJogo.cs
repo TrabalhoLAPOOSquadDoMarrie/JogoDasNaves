@@ -357,7 +357,8 @@ public class EstadoJogo
             _proximoIdAsteroide++,
             new Vector2(x, -30),
             new Vector2(0, velY),
-            raio
+            raio,
+            _random.Next(0, 3) // Tipo de textura (0 a 2)
         );
 
         _asteroides[asteroide.Id] = asteroide;
@@ -404,13 +405,14 @@ public class EstadoJogo
                 {
                     Id = t.Id,
                     JogadorId = t.JogadorId,
-                    Posicao = t.Posicao
+                    Posicao = t.Posicao,
                 }).ToList(),
                 Asteroides = _asteroides.Values.Select(a => new DadosAsteroide
                 {
                     Id = a.Id,
                     Posicao = a.Posicao,
-                    Raio = a.Raio
+                    Raio = a.Raio,
+                    TipoTextura = a.TipoTextura
                 }).ToList()
             };
         }

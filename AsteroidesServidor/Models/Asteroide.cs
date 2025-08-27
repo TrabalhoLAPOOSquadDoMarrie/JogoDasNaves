@@ -11,13 +11,15 @@ public class Asteroide
     public Vector2 Velocidade { get; set; }
     public float Raio { get; set; }
     public int Id { get; set; }
+    public int TipoTextura { get; set; }
 
-    public Asteroide(int id, Vector2 posicao, Vector2 velocidade, float raio)
+    public Asteroide(int id, Vector2 posicao, Vector2 velocidade, float raio, int tipoTextura)
     {
         Id = id;
         Posicao = posicao;
         Velocidade = velocidade;
         Raio = raio;
+        TipoTextura = tipoTextura;
     }
 
     /// <summary>

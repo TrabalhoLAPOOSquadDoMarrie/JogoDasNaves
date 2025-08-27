@@ -134,6 +134,7 @@ public class DadosAsteroide
     public int Id { get; set; }
     public Vector2 Posicao { get; set; }
     public float Raio { get; set; }
+    public int TipoTextura { get; set; } 
 }
 
 /// <summary>

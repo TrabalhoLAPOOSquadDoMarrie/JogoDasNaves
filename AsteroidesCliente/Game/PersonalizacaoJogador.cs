@@ -43,6 +43,7 @@ public class PersonalizacaoJogador
 
     // Texturas das naves
     public static Texture2D[] TexturasNave { get; set; }
+    public static Texture2D[] TexturasAsteroide { get; set; }
 
     // Cores predefinidas para selecao rapida
     public static readonly Color[] CoresDisponiveis = {
