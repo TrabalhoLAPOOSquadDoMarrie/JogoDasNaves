@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 
 namespace AsteroidesCliente.Game;
 
@@ -9,10 +10,10 @@ public class PersonalizacaoJogador
 {
     public enum TipoNave
     {
-        Triangular,
-        Losango,
-        Hexagonal,
-        Circular
+        Nave1,
+        Nave2,
+        Nave3,
+        Nave4
     }
 
     public enum TipoMeteoro
@@ -36,9 +37,12 @@ public class PersonalizacaoJogador
     public Color CorDetalhesNave { get; set; } = Color.LightBlue;
     public Color CorMissil { get; set; } = Color.Yellow;
     public Color CorFundo { get; set; } = Color.Black;
-    public TipoNave ModeloNave { get; set; } = TipoNave.Triangular;
+    public TipoNave ModeloNave { get; set; } = TipoNave.Nave1;
     public TipoMeteoro ModeloMeteoro { get; set; } = TipoMeteoro.Rochoso;
     public TipoFundo ModeloFundo { get; set; } = TipoFundo.EspacoProfundo;
+
+    // Texturas das naves
+    public static Texture2D[] TexturasNave { get; set; }
 
     // Cores predefinidas para selecao rapida
     public static readonly Color[] CoresDisponiveis = {

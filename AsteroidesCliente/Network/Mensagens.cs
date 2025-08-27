@@ -5,6 +5,8 @@ namespace AsteroidesCliente.Network;
 /// <summary>
 /// Tipos de mensagens trocadas entre cliente e servidor
 /// </summary>
+/// 
+
 public enum TipoMensagem
 {
     // Cliente para Servidor
@@ -14,6 +16,7 @@ public enum TipoMensagem
     DesconectarJogador,
     ReiniciarJogo,
     PausarJogo,
+    Personalizacao,
     
     // Servidor para Cliente
     EstadoJogo,
@@ -91,6 +94,14 @@ public class MensagemEstadoJogo : MensagemBase
     }
 }
 
+public class MensagemPersonalizacao : MensagemBase
+{
+    public int JogadorId { get; set; }
+    public int ModeloNave { get; set; }
+    public MensagemPersonalizacao() => Tipo = TipoMensagem.Personalizacao;
+}
+    
+
 /// <summary>
 /// Dados da nave para transmissão
 /// </summary>
@@ -102,6 +113,7 @@ public class DadosNave
     public bool Viva { get; set; }
     public int Pontuacao { get; set; }
     public float Tamanho { get; set; } = 1.0f;
+    public int ModeloNave { get; set; }
 }
 
 /// <summary>
@@ -137,14 +149,13 @@ public class MensagemJogadorConectado : MensagemBase
         Tipo = TipoMensagem.JogadorConectado;
     }
 }
-
 /// <summary>
 /// Mensagem de jogador desconectado
 /// </summary>
 public class MensagemJogadorDesconectado : MensagemBase
 {
     public int JogadorId { get; set; }
-    
+
     public MensagemJogadorDesconectado()
     {
         Tipo = TipoMensagem.JogadorDesconectado;

@@ -58,6 +58,8 @@ public class ClienteRede
             return false;
         }
     }
+    
+    
 
     /// <summary>
     /// Envia uma mensagem para o servidor de forma assincrona
@@ -69,15 +71,15 @@ public class ClienteRede
             if (!Conectado || _stream == null) return false;
 
             string json = JsonConvert.SerializeObject(mensagem);
-            
+
             byte[] dados = Encoding.UTF8.GetBytes(json);
             byte[] tamanho = BitConverter.GetBytes(dados.Length);
-            
+
             // Envia o tamanho da mensagem primeiro, depois a mensagem
             await _stream.WriteAsync(tamanho, 0, 4);
             await _stream.WriteAsync(dados, 0, dados.Length);
             await _stream.FlushAsync();
-            
+
             return true;
         }
         catch (Exception ex)

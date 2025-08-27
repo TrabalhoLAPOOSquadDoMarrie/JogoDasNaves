@@ -616,31 +616,49 @@ public class TelaJogo
         // Adiciona detalhes de crateras
         DesenharCrateras(posicao, raioInt);
     }
+    
+    private void DesenharLinha(Vector2 inicio, Vector2 fim, Color cor, int espessura = 1)
+
+    {
+
+        Vector2 diferenca = fim - inicio;
+
+        float distancia = diferenca.Length();
+
+        float angulo = (float)Math.Atan2(diferenca.Y, diferenca.X);
+
+        
+
+        var rect = new Rectangle((int)inicio.X, (int)inicio.Y, (int)distancia, espessura);
+
+        _spriteBatch.Draw(_pixelTexture, rect, null, cor, angulo, Vector2.Zero, SpriteEffects.None, 0);
+
+    }
 
     private void PreencherPoligono(List<Vector2> pontos, Color cor)
     {
         if (pontos.Count < 3) return;
-        
+
         // Encontra os limites do polígono
         float minY = pontos.Min(p => p.Y);
         float maxY = pontos.Max(p => p.Y);
-        
+
         for (int y = (int)minY; y <= (int)maxY; y++)
         {
             List<float> intersecoes = new List<float>();
-            
+
             for (int i = 0; i < pontos.Count; i++)
             {
                 Vector2 p1 = pontos[i];
                 Vector2 p2 = pontos[(i + 1) % pontos.Count];
-                
+
                 if ((p1.Y <= y && p2.Y > y) || (p2.Y <= y && p1.Y > y))
                 {
                     float x = p1.X + (y - p1.Y) * (p2.X - p1.X) / (p2.Y - p1.Y);
                     intersecoes.Add(x);
                 }
             }
-            
+
             intersecoes.Sort();
             for (int i = 0; i < intersecoes.Count - 1; i += 2)
             {
@@ -738,149 +756,23 @@ public class TelaJogo
         {
             if (!nave.Viva) continue;
 
-            Color corNave, corDetalhes;
+            Color corNave;
             
             // Define cores específicas para o jogador atual vs outros jogadores
             if (nave.JogadorId == _meuJogadorId)
             {
                 corNave = _personalizacao?.CorNave ?? Color.CornflowerBlue;
-                corDetalhes = _personalizacao?.CorDetalhesNave ?? Color.LightBlue;
             }
             else
             {
                 corNave = Color.Orange; // Laranja para outros jogadores
-                corDetalhes = Color.Yellow;
             }
-            
-            // Desenha a nave baseada no modelo selecionado com o tamanho e rotação corretos
-            switch (_personalizacao?.ModeloNave ?? PersonalizacaoJogador.TipoNave.Triangular)
-            {
-                case PersonalizacaoJogador.TipoNave.Triangular:
-                    DesenharNaveTriangular(nave.Posicao, nave.Rotacao, corNave, corDetalhes, nave.Tamanho);
-                    break;
-                case PersonalizacaoJogador.TipoNave.Losango:
-                    DesenharNaveLosango(nave.Posicao, nave.Rotacao, corNave, corDetalhes, nave.Tamanho);
-                    break;
-                case PersonalizacaoJogador.TipoNave.Hexagonal:
-                    DesenharNaveHexagonal(nave.Posicao, nave.Rotacao, corNave, corDetalhes, nave.Tamanho);
-                    break;
-                case PersonalizacaoJogador.TipoNave.Circular:
-                    DesenharNaveCircular(nave.Posicao, nave.Rotacao, corNave, corDetalhes, nave.Tamanho);
-                    break;
-                default:
-                    DesenharNaveTriangular(nave.Posicao, nave.Rotacao, corNave, corDetalhes, nave.Tamanho);
-                    break;
-            }
-        }
-    }
 
-    private void DesenharNaveTriangular(Vector2 posicao, float rotacao, Color corPrincipal, Color corDetalhes, float tamanho = 1.0f)
-    {
-        int x = (int)posicao.X;
-        int y = (int)posicao.Y;
-        
-        // Aplica o fator de tamanho
-        int altura = (int)(12 * tamanho);
-        int largura = (int)(8 * tamanho);
-        
-        // Pontos originais da nave (sem rotação)
-        Vector2[] pontosOriginais = {
-            new Vector2(0, -altura),           // Ponta superior
-            new Vector2(-largura, altura),     // Base esquerda
-            new Vector2(largura, altura)       // Base direita
-        };
-        
-        // Aplica rotação aos pontos
-        Vector2[] pontos = new Vector2[pontosOriginais.Length];
-        for (int i = 0; i < pontosOriginais.Length; i++)
-        {
-            pontos[i] = RotacionarPonto(pontosOriginais[i], rotacao) + posicao;
+            // Usa o ModeloNave que veio do servidor para desenhar a textura correta
+            var textura = PersonalizacaoJogador.TexturasNave[(int)nave.ModeloNave];
+            var origem = new Vector2(textura.Width / 2, textura.Height / 2);
+            _spriteBatch.Draw(textura, nave.Posicao, null, corNave, nave.Rotacao, origem, nave.Tamanho, SpriteEffects.None, 0f);
         }
-        
-        // Desenha o corpo da nave
-        DesenharTriangulo(pontos, corPrincipal);
-        
-        // Desenha detalhes da nave (escalados e rotacionados)
-        int cockpitSize = Math.Max(2, (int)(2 * tamanho));
-        var cockpitRect = new Rectangle(x - cockpitSize/2, y - cockpitSize/2, cockpitSize, cockpitSize);
-        _spriteBatch.Draw(_pixelTexture, cockpitRect, corDetalhes);
-        
-        // Motores (pequenos retângulos na base, rotacionados)
-        int motorWidth = Math.Max(1, (int)(2 * tamanho));
-        int motorHeight = Math.Max(2, (int)(4 * tamanho));
-        int motorOffset = (int)(6 * tamanho);
-        
-        // Posições originais dos motores (relativas ao centro)
-        Vector2 motorEsqPos = RotacionarPonto(new Vector2(-motorOffset, 6 * tamanho), rotacao) + posicao;
-        Vector2 motorDirPos = RotacionarPonto(new Vector2(motorOffset - motorWidth, 6 * tamanho), rotacao) + posicao;
-        
-        var motorEsq = new Rectangle((int)motorEsqPos.X, (int)motorEsqPos.Y, motorWidth, motorHeight);
-        var motorDir = new Rectangle((int)motorDirPos.X, (int)motorDirPos.Y, motorWidth, motorHeight);
-        _spriteBatch.Draw(_pixelTexture, motorEsq, Color.Orange);
-        _spriteBatch.Draw(_pixelTexture, motorDir, Color.Orange);
-        
-        // Brilho no cockpit
-        int brilhoSize = Math.Max(1, cockpitSize/2);
-        var brilho = new Rectangle(x - brilhoSize/2, y - brilhoSize/2, brilhoSize, brilhoSize);
-        _spriteBatch.Draw(_pixelTexture, brilho, Color.White);
-    }
-
-    private void DesenharTriangulo(Vector2[] pontos, Color cor)
-    {
-        // Desenha triângulo preenchido usando linhas
-        for (int i = 0; i < pontos.Length; i++)
-        {
-            Vector2 p1 = pontos[i];
-            Vector2 p2 = pontos[(i + 1) % pontos.Length];
-            DesenharLinha(p1, p2, cor, 2);
-        }
-        
-        // Preenche o triângulo
-        PreencherTriangulo(pontos, cor);
-    }
-
-    private void PreencherTriangulo(Vector2[] pontos, Color cor)
-    {
-        // Algoritmo simples para preencher triângulo
-        int minY = (int)Math.Min(pontos[0].Y, Math.Min(pontos[1].Y, pontos[2].Y));
-        int maxY = (int)Math.Max(pontos[0].Y, Math.Max(pontos[1].Y, pontos[2].Y));
-        
-        for (int y = minY; y <= maxY; y++)
-        {
-            List<int> intersecoes = new List<int>();
-            
-            for (int i = 0; i < 3; i++)
-            {
-                Vector2 p1 = pontos[i];
-                Vector2 p2 = pontos[(i + 1) % 3];
-                
-                if ((p1.Y <= y && p2.Y > y) || (p2.Y <= y && p1.Y > y))
-                {
-                    float x = p1.X + (y - p1.Y) * (p2.X - p1.X) / (p2.Y - p1.Y);
-                    intersecoes.Add((int)x);
-                }
-            }
-            
-            intersecoes.Sort();
-            for (int i = 0; i < intersecoes.Count - 1; i += 2)
-            {
-                for (int x = intersecoes[i]; x <= intersecoes[i + 1]; x++)
-                {
-                    var rect = new Rectangle(x, y, 1, 1);
-                    _spriteBatch.Draw(_pixelTexture, rect, cor);
-                }
-            }
-        }
-    }
-
-    private void DesenharLinha(Vector2 inicio, Vector2 fim, Color cor, int espessura = 1)
-    {
-        Vector2 diferenca = fim - inicio;
-        float distancia = diferenca.Length();
-        float angulo = (float)Math.Atan2(diferenca.Y, diferenca.X);
-        
-        var rect = new Rectangle((int)inicio.X, (int)inicio.Y, (int)distancia, espessura);
-        _spriteBatch.Draw(_pixelTexture, rect, null, cor, angulo, Vector2.Zero, SpriteEffects.None, 0);
     }
 
     private void DesenharParticulas()
@@ -1184,12 +1076,23 @@ public class TelaJogo
 
             case TipoMensagem.JogadorConectado:
                 var msgConectado = (MensagemJogadorConectado)mensagem;
-                
+
                 // Modo online: atribui o ID recebido como meu ID
                 if (_meuJogadorId == -1)
                 {
                     _meuJogadorId = msgConectado.JogadorId;
                     Console.WriteLine($"Meu ID: {_meuJogadorId}");
+
+                    if (_personalizacao != null)
+                    {
+                        // --- CORREÇÃO: Converte o enum para int ao enviar ---
+                        _ = _clienteRede.EnviarMensagemAsync(new MensagemPersonalizacao
+                        {
+                            JogadorId = _meuJogadorId,
+                            ModeloNave = (int)_personalizacao.ModeloNave
+                        });
+                    }
+
                 }
                 // Guarda o nome para exibição
                 _nomesJogadores[msgConectado.JogadorId] = msgConectado.NomeJogador;
@@ -1402,195 +1305,6 @@ public class TelaJogo
                     Sair = true;
                     SairDoJogo = true;
                     break;
-            }
-        }
-    }
-    private void DesenharNaveLosango(Vector2 posicao, float rotacao, Color corPrincipal, Color corDetalhes, float tamanho = 1.0f)
-    {
-        int x = (int)posicao.X;
-        int y = (int)posicao.Y;
-        
-        // Aplica o fator de tamanho
-        int altura = (int)(10 * tamanho);
-        int largura = (int)(6 * tamanho);
-        
-        // Pontos originais da nave (sem rotação)
-        Vector2[] pontosOriginais = {
-            new Vector2(0, -altura),      // Ponta superior
-            new Vector2(-largura, 0),     // Lateral esquerda
-            new Vector2(0, altura),       // Ponta inferior
-            new Vector2(largura, 0)       // Lateral direita
-        };
-        
-        // Aplica rotação aos pontos
-        Vector2[] pontos = new Vector2[pontosOriginais.Length];
-        for (int i = 0; i < pontosOriginais.Length; i++)
-        {
-            pontos[i] = RotacionarPonto(pontosOriginais[i], rotacao) + posicao;
-        }
-        
-        // Desenha o corpo da nave
-        DesenharPoligonoPreenchido(pontos, corPrincipal);
-        
-        // Desenha detalhes da nave (escalados)
-        int cockpitSize = Math.Max(2, (int)(2 * tamanho));
-        var cockpitRect = new Rectangle(x - cockpitSize/2, y - cockpitSize/2, cockpitSize, cockpitSize);
-        _spriteBatch.Draw(_pixelTexture, cockpitRect, corDetalhes);
-        
-        // Motores nas laterais (rotacionados)
-        int motorWidth = Math.Max(2, (int)(3 * tamanho));
-        int motorHeight = Math.Max(1, (int)(2 * tamanho));
-        int motorOffset = (int)(8 * tamanho);
-        
-        Vector2 motorEsqPos = RotacionarPonto(new Vector2(-motorOffset, -motorHeight/2), rotacao) + posicao;
-        Vector2 motorDirPos = RotacionarPonto(new Vector2(motorOffset - motorWidth, -motorHeight/2), rotacao) + posicao;
-        
-        var motorEsq = new Rectangle((int)motorEsqPos.X, (int)motorEsqPos.Y, motorWidth, motorHeight);
-        var motorDir = new Rectangle((int)motorDirPos.X, (int)motorDirPos.Y, motorWidth, motorHeight);
-        _spriteBatch.Draw(_pixelTexture, motorEsq, Color.Orange);
-        _spriteBatch.Draw(_pixelTexture, motorDir, Color.Orange);
-    }
-
-    private void DesenharNaveHexagonal(Vector2 posicao, float rotacao, Color corPrincipal, Color corDetalhes, float tamanho = 1.0f)
-    {
-        int x = (int)posicao.X;
-        int y = (int)posicao.Y;
-        
-        // Aplica o fator de tamanho
-        float raio = 8 * tamanho;
-        
-        // Corpo principal da nave (hexágono)
-        Vector2[] pontosOriginais = new Vector2[6];
-        for (int i = 0; i < 6; i++)
-        {
-            float angulo = (float)(Math.PI / 3 * i - Math.PI / 2); // Começa do topo
-            pontosOriginais[i] = new Vector2(
-                raio * (float)Math.Cos(angulo),
-                raio * (float)Math.Sin(angulo)
-            );
-        }
-        
-        // Aplica rotação aos pontos
-        Vector2[] pontos = new Vector2[pontosOriginais.Length];
-        for (int i = 0; i < pontosOriginais.Length; i++)
-        {
-            pontos[i] = RotacionarPonto(pontosOriginais[i], rotacao) + posicao;
-        }
-        
-        // Desenha o corpo da nave
-        DesenharPoligonoPreenchido(pontos, corPrincipal);
-        
-        // Desenha detalhes da nave (escalados)
-        int cockpitSize = Math.Max(3, (int)(3 * tamanho));
-        var cockpitRect = new Rectangle(x - cockpitSize/2, y - cockpitSize/2, cockpitSize, cockpitSize);
-        _spriteBatch.Draw(_pixelTexture, cockpitRect, corDetalhes);
-        
-        // Motor central (rotacionado)
-        int motorWidth = Math.Max(1, (int)(2 * tamanho));
-        int motorHeight = Math.Max(2, (int)(4 * tamanho));
-        int motorOffset = (int)(6 * tamanho);
-        
-        Vector2 motorPos = RotacionarPonto(new Vector2(-motorWidth/2, motorOffset), rotacao) + posicao;
-        var motor = new Rectangle((int)motorPos.X, (int)motorPos.Y, motorWidth, motorHeight);
-        _spriteBatch.Draw(_pixelTexture, motor, Color.Orange);
-    }
-
-    private void DesenharNaveCircular(Vector2 posicao, float rotacao, Color corPrincipal, Color corDetalhes, float tamanho = 1.0f)
-    {
-        int x = (int)posicao.X;
-        int y = (int)posicao.Y;
-        int raio = Math.Max(4, (int)(8 * tamanho));
-        
-        // Desenha círculo preenchido
-        for (int dy = -raio; dy <= raio; dy++)
-        {
-            for (int dx = -raio; dx <= raio; dx++)
-            {
-                if (dx * dx + dy * dy <= raio * raio)
-                {
-                    var pixelRect = new Rectangle(x + dx, y + dy, 1, 1);
-                    _spriteBatch.Draw(_pixelTexture, pixelRect, corPrincipal);
-                }
-            }
-        }
-        
-        // Desenha anel de detalhes
-        int raioInterno = Math.Max(2, raio - 4);
-        int raioExterno = Math.Max(3, raio - 2);
-        
-        for (int dy = -raioExterno; dy <= raioExterno; dy++)
-        {
-            for (int dx = -raioExterno; dx <= raioExterno; dx++)
-            {
-                int distSq = dx * dx + dy * dy;
-                if (distSq <= raioExterno * raioExterno && distSq >= raioInterno * raioInterno)
-                {
-                    var pixelRect = new Rectangle(x + dx, y + dy, 1, 1);
-                    _spriteBatch.Draw(_pixelTexture, pixelRect, corDetalhes);
-                }
-            }
-        }
-        
-        // Desenha indicador de direção (triângulo pequeno na frente)
-        int indicadorTamanho = Math.Max(2, (int)(3 * tamanho));
-        Vector2[] pontosIndicador = {
-            new Vector2(0, -raio - indicadorTamanho),     // Ponta
-            new Vector2(-indicadorTamanho/2, -raio),      // Base esquerda
-            new Vector2(indicadorTamanho/2, -raio)        // Base direita
-        };
-        
-        // Aplica rotação ao indicador
-        Vector2[] pontosRotacionados = new Vector2[pontosIndicador.Length];
-        for (int i = 0; i < pontosIndicador.Length; i++)
-        {
-            pontosRotacionados[i] = RotacionarPonto(pontosIndicador[i], rotacao) + posicao;
-        }
-        
-        // Desenha o indicador de direção
-        DesenharTriangulo(pontosRotacionados, Color.White);
-        
-        // Motor (rotacionado)
-        int motorWidth = Math.Max(1, (int)(2 * tamanho));
-        int motorHeight = Math.Max(2, (int)(4 * tamanho));
-        int motorOffset = Math.Max(2, raio - 2);
-        
-        Vector2 motorPos = RotacionarPonto(new Vector2(-motorWidth/2, motorOffset), rotacao) + posicao;
-        var motor = new Rectangle((int)motorPos.X, (int)motorPos.Y, motorWidth, motorHeight);
-        _spriteBatch.Draw(_pixelTexture, motor, Color.Orange);
-    }
-
-    private void DesenharPoligonoPreenchido(Vector2[] pontos, Color cor)
-    {
-        if (pontos.Length < 3) return;
-        
-        // Encontra os limites do polígono
-        float minY = pontos.Min(p => p.Y);
-        float maxY = pontos.Max(p => p.Y);
-        
-        for (int y = (int)minY; y <= (int)maxY; y++)
-        {
-            List<float> intersecoes = new List<float>();
-            
-            for (int i = 0; i < pontos.Length; i++)
-            {
-                Vector2 p1 = pontos[i];
-                Vector2 p2 = pontos[(i + 1) % pontos.Length];
-                
-                if ((p1.Y <= y && p2.Y > y) || (p2.Y <= y && p1.Y > y))
-                {
-                    float x = p1.X + (y - p1.Y) * (p2.X - p1.X) / (p2.Y - p1.Y);
-                    intersecoes.Add(x);
-                }
-            }
-            
-            intersecoes.Sort();
-            for (int i = 0; i < intersecoes.Count - 1; i += 2)
-            {
-                for (int x = (int)intersecoes[i]; x <= (int)intersecoes[i + 1]; x++)
-                {
-                    var rect = new Rectangle(x, y, 1, 1);
-                    _spriteBatch.Draw(_pixelTexture, rect, cor);
-                }
             }
         }
     }
@@ -2001,4 +1715,3 @@ public class Particula
         Cor = Color.FromNonPremultiplied(Cor.R, Cor.G, Cor.B, (int)(255 * alpha));
     }
 }
-

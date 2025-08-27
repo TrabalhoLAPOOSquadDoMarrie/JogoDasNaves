@@ -75,6 +75,13 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
             _personalizacao = new PersonalizacaoJogador();
             _personalizacao.Carregar();
 
+            PersonalizacaoJogador.TexturasNave = new Texture2D[4];
+            PersonalizacaoJogador.TexturasNave[0] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Nave1.png");
+            PersonalizacaoJogador.TexturasNave[1] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Nave2.png");
+            PersonalizacaoJogador.TexturasNave[2] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Nave3.png");
+            PersonalizacaoJogador.TexturasNave[3] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Nave4.png");
+            // --- FIM DA CORREÇÃO ---
+
             // Criar textura pixel para o menu de personalização
             var pixelTexture = new Texture2D(GraphicsDevice, 1, 1);
             pixelTexture.SetData(new[] { Color.White });
