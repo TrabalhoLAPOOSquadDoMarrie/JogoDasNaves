@@ -16,7 +16,7 @@ public class ServidorAsteroides
     private readonly EstadoJogo _estadoJogo = new();
     private readonly object _lockClientes = new();
     
-    private bool _rodando = false;
+    private bool _rodando = false;  
     private int _proximoIdJogador = 1;
     private const int PortaPadrao = 8890;
     private const int TicksPerSecond = 60; // 60 FPS
@@ -196,6 +196,15 @@ public class ServidorAsteroides
                     _estadoJogo.AdicionarTiro(msgTiro.JogadorId);
                     break;
 
+                case TipoMensagem.Personalizacao:
+                    var msgPersonalizacao = (MensagemPersonalizacao)mensagem;
+                    var navePersonalizada = _estadoJogo.ObterNave(msgPersonalizacao.JogadorId);
+                    if (navePersonalizada != null)
+                    {
+                        navePersonalizada.ModeloNave = msgPersonalizacao.ModeloNave;
+                    }
+                    break;
+                    
                 case TipoMensagem.ReiniciarJogo:
                     Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) solicitou reinício do jogo");
                     _estadoJogo.ReiniciarJogo();

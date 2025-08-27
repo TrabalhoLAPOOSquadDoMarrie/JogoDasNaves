@@ -95,6 +95,8 @@ public class ClienteConectado
                 TipoMensagem.MovimentoJogador => JsonConvert.DeserializeObject<MensagemMovimentoJogador>(json),
                 TipoMensagem.AtirarTiro => JsonConvert.DeserializeObject<MensagemAtirarTiro>(json),
                 TipoMensagem.PausarJogo      => JsonConvert.DeserializeObject<MensagemPausarJogo>(json),
+                TipoMensagem.Personalizacao => JsonConvert.DeserializeObject<MensagemPersonalizacao>(json), 
+                TipoMensagem.ReiniciarJogo => JsonConvert.DeserializeObject<MensagemReiniciarJogo>(json), 
                 TipoMensagem.DesconectarJogador => JsonConvert.DeserializeObject<MensagemBase>(json),
                 _ => null
             };

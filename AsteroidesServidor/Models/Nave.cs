@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using AsteroidesServidor.Network;
 
 namespace AsteroidesServidor.Models;
 
@@ -13,13 +14,13 @@ public class Nave
     public bool Viva { get; set; }
     public int Pontuacao { get; set; }
     public float Tamanho { get; private set; } = 1.0f; // Tamanho base da nave
-
+    public int ModeloNave { get; set; } = 0; // Modelo da nave (0-3)
     private const float Velocidade = 5f;
     private const float VelocidadeRotacao = 0.1f; // Velocidade de rotação
     private const float HalfW = 10, HalfH = 10;
     private const int PontosParaCrescimento = 200; // A cada 200 pontos a nave cresce
     private const float IncrementoTamanho = 0.1f; // Incremento de 10% no tamanho
-    
+
 
     public Nave(int jogadorId, Vector2 posicaoInicial)
     {
@@ -78,13 +79,13 @@ public class Nave
             (float)Math.Sin(Rotacao),
             -(float)Math.Cos(Rotacao)
         );
-        
+
         // Posição inicial do tiro (na ponta da nave)
         Vector2 posicaoTiro = Posicao + direcaoTiro * 12;
-        
+
         // Velocidade do tiro na direção da nave
         Vector2 velocidadeTiro = direcaoTiro * 8;
-        
+
         return new Tiro(tiroId, JogadorId, posicaoTiro, velocidadeTiro);
     }
 
@@ -103,11 +104,11 @@ public class Nave
     {
         int pontuacaoAnterior = Pontuacao;
         Pontuacao += pontos;
-        
+
         // Calcula o novo tamanho baseado na pontuação
         int nivelAnterior = pontuacaoAnterior / PontosParaCrescimento;
         int nivelAtual = Pontuacao / PontosParaCrescimento;
-        
+
         // Se subiu de nível, aumenta o tamanho
         if (nivelAtual > nivelAnterior)
         {
@@ -115,7 +116,7 @@ public class Nave
             Console.WriteLine($"Nave do jogador {JogadorId} cresceu! Novo tamanho: {Tamanho:F2}x");
         }
     }
-    
+
     /// <summary>
     /// Reseta a nave para o estado inicial
     /// </summary>

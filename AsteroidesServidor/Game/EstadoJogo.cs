@@ -10,6 +10,11 @@ namespace AsteroidesServidor.Game;
 public class EstadoJogo
 {
     private readonly Dictionary<int, Nave> _naves = new();
+    public Nave? ObterNave(int jogadorId)
+        {
+            _naves.TryGetValue(jogadorId, out var nave);
+            return nave;
+        }
     private readonly Dictionary<int, Tiro> _tiros = new();
     private readonly Dictionary<int, Asteroide> _asteroides = new();
     private readonly Random _random = new();
@@ -392,6 +397,7 @@ public class EstadoJogo
                     Rotacao = n.Rotacao,
                     Viva = n.Viva,
                     Pontuacao = n.Pontuacao,
+                    ModeloNave = n.ModeloNave,
                     Tamanho = n.Tamanho
                 }).ToList(),
                 Tiros = _tiros.Values.Select(t => new DadosTiro
