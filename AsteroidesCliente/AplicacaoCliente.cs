@@ -5,6 +5,7 @@ using AsteroidesCliente.Network;
 using AsteroidesCliente.UI;
 using AsteroidesCliente.Game;
 using Microsoft.Xna.Framework.Audio;
+using Microsoft.Xna.Framework.Media;
 
 namespace AsteroidesCliente;
 
@@ -24,6 +25,8 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
     private SoundEffect? _somTiro;
     private SoundEffect? _somExplosao;
     private SoundEffect? _somClick;
+    private Song? _musicaAtual;
+    private Dictionary<string, Song> _musicasCarregadas = new();
 
     private EstadoAplicacao _estadoAtual = EstadoAplicacao.Menu;
     private MenuPrincipal? _menuPrincipal;
@@ -38,6 +41,11 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
+
+        // Configurações para alta performance
+        TargetElapsedTime = TimeSpan.FromSeconds(1.0 / 144.0); // 144 FPS target
+        IsFixedTimeStep = false; // Permite framerate variável para melhor performance
+        _graphics.SynchronizeWithVerticalRetrace = false; // Desabilita VSync para máxima performance
 
         // Inicializar com resolução padrão - será atualizada no LoadContent
         _graphics.PreferredBackBufferWidth = 1280;
@@ -60,6 +68,9 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
             _somTiro = Content.Load<SoundEffect>("Sounds/tiro");
             _somExplosao = Content.Load<SoundEffect>("Sounds/explosao");
             _somClick = Content.Load<SoundEffect>("Sounds/click");
+            
+            // Carrega todas as músicas disponíveis
+            CarregarMusicas();
 
             _menuPrincipal = new MenuPrincipal(_font, _somClick);
             _menuPrincipal.GraphicsDevice = GraphicsDevice;
@@ -76,17 +87,17 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
             _personalizacao.Carregar();
 
             PersonalizacaoJogador.TexturasNave = new Texture2D[4];
-            PersonalizacaoJogador.TexturasNave[0] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Nave1.png");
-            PersonalizacaoJogador.TexturasNave[1] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Nave2.png");
-            PersonalizacaoJogador.TexturasNave[2] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Nave3.png");
-            PersonalizacaoJogador.TexturasNave[3] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Nave4.png");
+            PersonalizacaoJogador.TexturasNave[0] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Nave1.png");
+            PersonalizacaoJogador.TexturasNave[1] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Nave2.png");
+            PersonalizacaoJogador.TexturasNave[2] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Nave3.png");
+            PersonalizacaoJogador.TexturasNave[3] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Nave4.png");
             // --- FIM DA CORREÇÃO ---
 
             // Carrega as texturas dos asteroides
             PersonalizacaoJogador.TexturasAsteroide = new Texture2D[3];
-            PersonalizacaoJogador.TexturasAsteroide[0] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Asteroide1.png");
-            PersonalizacaoJogador.TexturasAsteroide[1] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Asteroide2.png");
-            PersonalizacaoJogador.TexturasAsteroide[2] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Asteroide3.png");
+            PersonalizacaoJogador.TexturasAsteroide[0] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Asteroide1.png");
+            PersonalizacaoJogador.TexturasAsteroide[1] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Asteroide2.png");
+            PersonalizacaoJogador.TexturasAsteroide[2] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Asteroide3.png");
         
 
             // Criar textura pixel para o menu de personalização
@@ -94,10 +105,16 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
             pixelTexture.SetData(new[] { Color.White });
 
             _menuPersonalizacao = new MenuPersonalizacao(_font, pixelTexture, _personalizacao);
+            
+            // Conectar evento para aplicar música quando alterada
+            _menuPersonalizacao.MusicaAlterada += AplicarMusicaSelecionada;
 
             // Aplicar resolução salva
             var (largura, altura) = _personalizacao.ObterDimensoesResolucao();
             AplicarResolucao(largura, altura);
+
+            // Aplicar música selecionada
+            AplicarMusicaSelecionada();
 
             _inicializado = true;
             
@@ -143,11 +160,6 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
                         _telaJogo = null;
                         // Redefine o estado do menu para conectado já que mantemos a conexão
                         _menuPrincipal?.DefinirEstado(MenuPrincipal.EstadoMenu.Conectado);
-                    }
-                    else if (_telaJogo?.ReiniciarJogo == true)
-                    {
-                        // Reinicia o jogo enviando mensagem para o servidor
-                        ReiniciarJogo();
                     }
                     break;
                 case EstadoAplicacao.Personalizacao:
@@ -214,7 +226,7 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
             {
                 try
                 {
-                    _spriteBatch.End();
+                    _spriteBatch?.End();
                 }
                 catch (Exception ex)
                 {
@@ -385,48 +397,6 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
         _estadoAtual = EstadoAplicacao.Menu;
     }
 
-    private async void ReiniciarJogo()
-    {
-        try
-        {
-            if (_clienteRede == null || _menuPrincipal == null) return;
-
-            Console.WriteLine("Iniciando reinicio do jogo...");
-
-            // Envia mensagem de reinício para o servidor
-            await _clienteRede.EnviarMensagemAsync(new MensagemReiniciarJogo());
-
-            // Aguarda um pouco para o servidor processar
-            await Task.Delay(500);
-
-            // Recria a tela do jogo para resetar o estado local
-            if (_spriteBatch != null && _font != null)
-            {
-                // Desconecta os eventos da tela anterior se existir
-                if (_telaJogo != null)
-                {
-                    // Remove event handlers para evitar vazamentos de memória
-                    _telaJogo = null;
-                }
-
-                // Cria nova instância da tela do jogo
-            _telaJogo = new TelaJogo(_clienteRede, _personalizacao, _spriteBatch, _graphics, _font, _menuPrincipal.DificuldadeSelecionada, _somTiro, _somExplosao, _somClick);
-                _estadoAtual = EstadoAplicacao.Jogo;
-                
-                Console.WriteLine("Nova tela de jogo criada com sucesso!");
-            }
-
-            Console.WriteLine("Jogo reiniciado com sucesso!");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Erro ao reiniciar jogo: {ex.Message}");
-            // Em caso de erro, volta ao menu
-            _estadoAtual = EstadoAplicacao.Menu;
-            _menuPrincipal?.DefinirEstado(MenuPrincipal.EstadoMenu.Erro, "Erro ao reiniciar o jogo");
-        }
-    }
-
     private void AplicarResolucao(int largura, int altura)
     {
         _graphics.PreferredBackBufferWidth = largura;
@@ -434,5 +404,80 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
         _graphics.ApplyChanges();
         
         Console.WriteLine($"Resolucao aplicada: {largura}x{altura}");
+    }
+
+    /// <summary>
+    /// Carrega todas as músicas disponíveis
+    /// </summary>
+    private void CarregarMusicas()
+    {
+        try
+        {
+            // Lista das músicas disponíveis
+            var musicasDisponiveis = new Dictionary<string, string>
+            {
+                { "Sounds/Mantis-Lords", "Mantis Lords" },
+                { "Sounds/Medley", "Medley Clássico" },
+                { "Sounds/Metallica-Enter-Sandman", "Enter Sandman" }
+            };
+
+            foreach (var musica in musicasDisponiveis)
+            {
+                try
+                {
+                    var song = Content.Load<Song>(musica.Key);
+                    _musicasCarregadas[musica.Key] = song;
+                    Console.WriteLine($"Música carregada: {musica.Value}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Erro ao carregar música '{musica.Value}': {ex.Message}");
+                }
+            }
+
+            // Configura o MediaPlayer
+            MediaPlayer.IsRepeating = true;
+            MediaPlayer.Volume = 0.3f;
+
+            Console.WriteLine($"Sistema de música inicializado com {_musicasCarregadas.Count} músicas disponíveis");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erro ao inicializar sistema de música: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Aplica a música selecionada nas configurações
+    /// </summary>
+    private void AplicarMusicaSelecionada()
+    {
+        if (_personalizacao == null) return;
+
+        var nomeArquivo = _personalizacao.ObterNomeArquivoMusica();
+        
+        if (nomeArquivo == null)
+        {
+            // Música desabilitada
+            MediaPlayer.Stop();
+            _musicaAtual = null;
+            Console.WriteLine("Música desabilitada");
+            return;
+        }
+
+        if (_musicasCarregadas.TryGetValue(nomeArquivo, out var novaMusica))
+        {
+            // Só troca se for diferente da atual
+            if (_musicaAtual != novaMusica)
+            {
+                _musicaAtual = novaMusica;
+                MediaPlayer.Play(_musicaAtual);
+                Console.WriteLine($"Tocando: {_personalizacao.ObterNomeAmigavelMusica()}");
+            }
+        }
+        else
+        {
+            Console.WriteLine($"Música não encontrada: {nomeArquivo}");
+        }
     }
 }

@@ -26,11 +26,15 @@ public class MenuPersonalizacao
         "Tipo de Meteoro",
         "Cor do Fundo",
         "Tipo de Fundo",
+        "Música de Fundo",
         "Salvar e Voltar"
     };
 
     public bool MenuAtivo { get; set; } = false;
     public bool VoltarParaMenuPrincipal { get; set; } = false;
+    
+    // Eventos
+    public event Action? MusicaAlterada;
     
     /// <summary>
     /// Reseta o estado do menu para o inicial
@@ -136,6 +140,7 @@ public class MenuPersonalizacao
             3 => Enum.GetValues<Game.PersonalizacaoJogador.TipoMeteoro>().Length, // Tipo de Meteoro
             4 => Game.PersonalizacaoJogador.CoresFundo.Length, // Cor do Fundo
             5 => Enum.GetValues<Game.PersonalizacaoJogador.TipoFundo>().Length, // Tipo de Fundo
+            6 => Enum.GetValues<Game.PersonalizacaoJogador.TipoMusica>().Length, // Música de Fundo
             _ => 1
         };
     }
@@ -165,6 +170,12 @@ public class MenuPersonalizacao
             case 5: // Tipo de Fundo
                 var tiposFundo = Enum.GetValues<Game.PersonalizacaoJogador.TipoFundo>();
                 _personalizacao.ModeloFundo = tiposFundo[_subOpcaoSelecionada];
+                break;
+            case 6: // Música de Fundo
+                var tiposMusica = Enum.GetValues<Game.PersonalizacaoJogador.TipoMusica>();
+                _personalizacao.MusicaFundo = tiposMusica[_subOpcaoSelecionada];
+                // Notifica a mudança de música
+                MusicaAlterada?.Invoke();
                 break;
         }
         
@@ -258,6 +269,7 @@ public class MenuPersonalizacao
             3 => new[] { "Rochoso", "Metalico", "Cristalino", "Gelado" },
             4 => new[] { "Preto", "Azul Escuro", "Vermelho Escuro", "Verde Escuro", "Cinza Escuro", "Azul Meia-Noite" },
             5 => new[] { "Espaco Profundo", "Nebulosa", "Campo Estelar", "Galaxia Espiral" },
+            6 => new[] { "Desabilitada", "Mantis Lords", "Medley Classico", "Enter Sandman", "Aleatoria" },
             _ => new[] { "" }
         };
     }
@@ -283,6 +295,7 @@ public class MenuPersonalizacao
             3 => _personalizacao.ModeloMeteoro.ToString(),
             4 => "Personalizada",
             5 => _personalizacao.ModeloFundo.ToString(),
+            6 => _personalizacao.ObterNomeAmigavelMusica(),
             _ => ""
         };
     }
@@ -305,7 +318,8 @@ public class MenuPersonalizacao
 
     private void DesenharNavePreview(SpriteBatch spriteBatch, Vector2 posicao, Color corPrincipal, Color corDetalhes)
     {
-        var textura = Game.PersonalizacaoJogador.TexturasNave[(int)_personalizacao.ModeloNave];
+        var textura = Game.PersonalizacaoJogador.TexturasNave?[(int)_personalizacao.ModeloNave];
+        if (textura == null) return;
         spriteBatch.Draw(textura, posicao, null, corPrincipal, 0f, new Vector2(textura.Width / 2, textura.Height / 2), 1.0f, SpriteEffects.None, 0f);
     }
 

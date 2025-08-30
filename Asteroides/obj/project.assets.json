@@ -4076,31 +4076,24 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\Sergio\\.nuget\\packages\\": {},
-    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+    "/home/arthur/.nuget/packages/": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\Sergio\\Documents\\GitHub\\JogoDasNaves\\Asteroides\\Asteroides.csproj",
+      "projectUniqueName": "/home/arthur/Documents/POO2/Trabalho_Nave/JogoDasNaves/Asteroides/Asteroides.csproj",
       "projectName": "Asteroides",
-      "projectPath": "C:\\Users\\Sergio\\Documents\\GitHub\\JogoDasNaves\\Asteroides\\Asteroides.csproj",
-      "packagesPath": "C:\\Users\\Sergio\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\Sergio\\Documents\\GitHub\\JogoDasNaves\\Asteroides\\obj\\",
+      "projectPath": "/home/arthur/Documents/POO2/Trabalho_Nave/JogoDasNaves/Asteroides/Asteroides.csproj",
+      "packagesPath": "/home/arthur/.nuget/packages/",
+      "outputPath": "/home/arthur/Documents/POO2/Trabalho_Nave/JogoDasNaves/Asteroides/obj/",
       "projectStyle": "PackageReference",
-      "fallbackFolders": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-      ],
       "configFilePaths": [
-        "C:\\Users\\Sergio\\AppData\\Roaming\\NuGet\\NuGet.Config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        "/home/arthur/.nuget/NuGet/NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net9.0"
       ],
       "sources": {
-        "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
@@ -4150,7 +4143,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.200/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/9.0.203/PortableRuntimeIdentifierGraph.json"
       }
     }
   },
@@ -4159,7 +4152,7 @@
       "code": "NU1701",
       "level": "Warning",
       "warningLevel": 1,
-      "message": "O pacote 'MonoGame.Framework.Portable 3.7.1.189' foi restaurado usando '.NETFramework,Version=v4.6.1, .NETFramework,Version=v4.6.2, .NETFramework,Version=v4.7, .NETFramework,Version=v4.7.1, .NETFramework,Version=v4.7.2, .NETFramework,Version=v4.8, .NETFramework,Version=v4.8.1' em vez da estrutura de destino do projeto 'net9.0'. Esse pacote pode não ser totalmente compatível com o seu projeto.",
+      "message": "Package 'MonoGame.Framework.Portable 3.7.1.189' was restored using '.NETFramework,Version=v4.6.1, .NETFramework,Version=v4.6.2, .NETFramework,Version=v4.7, .NETFramework,Version=v4.7.1, .NETFramework,Version=v4.7.2, .NETFramework,Version=v4.8, .NETFramework,Version=v4.8.1' instead of the project target framework 'net9.0'. This package may not be fully compatible with your project.",
       "libraryId": "MonoGame.Framework.Portable",
       "targetGraphs": [
         "net9.0"

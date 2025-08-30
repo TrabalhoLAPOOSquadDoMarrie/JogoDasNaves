@@ -136,6 +136,7 @@ public class ClienteRede
                     TipoMensagem.JogadorDesconectado => JsonConvert.DeserializeObject<MensagemJogadorDesconectado>(json),
                     TipoMensagem.GameOver => JsonConvert.DeserializeObject<MensagemGameOver>(json),
                     TipoMensagem.PausarJogo => JsonConvert.DeserializeObject<MensagemPausarJogo>(json),
+                    TipoMensagem.ReiniciarJogo => JsonConvert.DeserializeObject<MensagemReiniciarJogo>(json),
                     _ => null
                 };
                 

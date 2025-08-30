@@ -55,6 +55,29 @@ public class TelaJogo
     private int _pontuacao = 0;
     private string _dificuldadeAtual = "Medio";
 
+    // Contador de FPS para otimização
+    private int _fpsCount = 0;
+    private float _fpsTimer = 0f;
+    private int _currentFps = 0;
+
+    // Constantes de otimização para 144 FPS
+    private const int MAX_PARTICULAS = 150; // Drasticamente reduzido para 144 FPS
+    private const int MAX_EXPLOSOES = 8; // Reduzido para 144 FPS
+    private const int UPDATE_NETWORK_INTERVAL = 3; // Envia dados de rede a cada 3 frames (48 Hz)
+    private const int UPDATE_EFFECTS_INTERVAL = 2; // Atualiza efeitos visuais a cada 2 frames
+    private const int UPDATE_HUD_INTERVAL = 10; // Atualiza cálculos do HUD a cada 10 frames
+    private const int MAX_PARTICULAS_RENDER = 75; // Máximo de partículas desenhadas por frame
+    private const int MAX_STARS_COUNT = 150; // Número fixo de estrelas para evitar cálculo em tempo real
+    private int _networkUpdateCounter = 0;
+    private int _effectsUpdateCounter = 0;
+    private int _hudUpdateCounter = 0;
+
+    // Cache para otimizações
+    private Vector2[]? _starPositions = null;
+    private Color[]? _starColors = null;
+    private int[]? _starSizes = null;
+    private bool _starsInitialized = false;
+
     // Estado do input - Controles únicos (WASD + Espaço)
     private bool _esquerda, _direita, _cima, _baixo;
     private bool _espacoAnterior = false;
@@ -72,7 +95,10 @@ public class TelaJogo
     private EstadoGameOver _estadoGameOver = EstadoGameOver.Fechado;
     private int _opcaoSelecionadaGameOver = 0;
     private readonly string[] _opcoesGameOver = { "Reiniciar Jogo", "Voltar ao Menu", "Sair do Jogo" };
-    private bool _reiniciarJogo = false;
+    
+    // Rastreamento de votação para reinício
+    private int _votosReinicioAtuais = 0;
+    private int _votosReinicioNecessarios = 0;
 
     // Efeitos visuais
     private readonly List<Particula> _particulas = new();
@@ -91,7 +117,6 @@ public class TelaJogo
     public bool Sair { get; private set; }
     public bool VoltarAoMenu { get; private set; }
     public bool SairDoJogo { get; private set; }
-    public bool ReiniciarJogo => _reiniciarJogo;
 
     // Indica se este cliente já confirmou o retorno durante a pausa global
     private bool ConfirmadoLocal => _meuJogadorId != -1 && _pausaConfirmados.Contains(_meuJogadorId);
@@ -119,6 +144,16 @@ public class TelaJogo
 
     public void Update(GameTime gameTime)
     {
+        // Atualizar contador de FPS
+        _fpsTimer += (float)gameTime.ElapsedGameTime.TotalSeconds;
+        _fpsCount++;
+        if (_fpsTimer >= 1.0f)
+        {
+            _currentFps = _fpsCount;
+            _fpsCount = 0;
+            _fpsTimer = 0f;
+        }
+
         var estadoTeclado = Keyboard.GetState();
         
         // Verifica se o menu de pausa foi ativado/desativado (tecla M)
@@ -222,23 +257,48 @@ public class TelaJogo
 
         ProcessarInput();
         
-        // Atualizar partículas
-        for (int i = _particulas.Count - 1; i >= 0; i--)
+        // Otimização agressiva: Atualizar efeitos visuais em intervalos maiores para 144 FPS
+        _effectsUpdateCounter++;
+        bool updateEffects = _effectsUpdateCounter >= UPDATE_EFFECTS_INTERVAL;
+        
+        if (updateEffects)
         {
-            _particulas[i].Atualizar();
-            if (_particulas[i].Morta)
+            _effectsUpdateCounter = 0;
+            
+            // Atualização ultra-eficiente de partículas
+            for (int i = _particulas.Count - 1; i >= 0; i--)
             {
-                _particulas.RemoveAt(i);
+                var particula = _particulas[i];
+                particula.Atualizar();
+                if (particula.Morta)
+                {
+                    _particulas.RemoveAt(i);
+                }
             }
-        }
-
-        // Atualizar animações de explosão
-        for (int i = _explosoes.Count - 1; i >= 0; i--)
-        {
-            _explosoes[i].Atualizar();
-            if (!_explosoes[i].EstaViva())
+            
+            // Limpeza agressiva se ultrapassar o limite
+            if (_particulas.Count > MAX_PARTICULAS)
             {
-                _explosoes.RemoveAt(i);
+                int excessoParticulas = _particulas.Count - (int)(MAX_PARTICULAS * 0.7f);
+                _particulas.RemoveRange(0, excessoParticulas);
+            }
+
+            // Atualização ultra-eficiente de explosões
+            for (int i = _explosoes.Count - 1; i >= 0; i--)
+            {
+                var explosao = _explosoes[i];
+                explosao.Atualizar();
+                if (!explosao.EstaViva())
+                {
+                    _explosoes.RemoveAt(i);
+                }
+            }
+            
+            // Limpeza agressiva de explosões
+            if (_explosoes.Count > MAX_EXPLOSOES)
+            {
+                int excessoExplosoes = _explosoes.Count - (int)(MAX_EXPLOSOES * 0.6f);
+                _explosoes.RemoveRange(0, excessoExplosoes);
             }
         }
         
@@ -277,12 +337,15 @@ public class TelaJogo
 
         if (!_jogoAtivo)
         {
-            DesenharTelaGameOver();
-            
-            // Desenha menu de game over se estiver ativo
+            // Se o menu de Game Over está aberto, só desenha o menu
             if (_estadoGameOver == EstadoGameOver.Aberto)
             {
                 DesenharMenuGameOver();
+            }
+            else
+            {
+                // Se não há menu ativo, desenha a tela de Game Over padrão
+                DesenharTelaGameOver();
             }
             
             // Desenha menu de pausa se estiver ativo (mesmo com jogo inativo)
@@ -374,10 +437,16 @@ public class TelaJogo
         _cima = novoCima;
         _baixo = novoBaixo;
     
-        // Envia o estado sempre que qualquer tecla estiver pressionada (mesmo sem mudanças)
-        // ou quando o estado mudar (teclas soltas)
+        // Otimização de rede: Envia movimento a cada N frames ou quando há mudanças significativas
+        _networkUpdateCounter++;
+        bool forceNetworkUpdate = _networkUpdateCounter >= UPDATE_NETWORK_INTERVAL;
+        
+        if (forceNetworkUpdate)
+            _networkUpdateCounter = 0;
+    
+        // Envia o estado quando há mudanças ou no intervalo de atualização da rede
         if (_meuJogadorId != -1 && 
-            (estadoMudou || _esquerda || _direita || _cima || _baixo))
+            (estadoMudou || (forceNetworkUpdate && (_esquerda || _direita || _cima || _baixo))))
         {
             _ = _clienteRede.EnviarMensagemAsync(new MensagemMovimentoJogador
             {
@@ -507,59 +576,74 @@ public class TelaJogo
 
     private void DesenharEstrelas()
     {
-        // Obtém as dimensões atuais da tela
+        // Inicializa as estrelas uma única vez para melhor performance
+        if (!_starsInitialized)
+        {
+            InicializarEstrelas();
+        }
+
+        // Desenha estrelas usando cache pré-computado
+        for (int i = 0; i < MAX_STARS_COUNT; i++)
+        {
+            if (_starPositions != null && _starColors != null && _starSizes != null)
+            {
+                var posicao = _starPositions[i];
+                var cor = _starColors[i];
+                var tamanho = _starSizes[i];
+
+                // Efeito de cintilação apenas para algumas estrelas (reduzido)
+                if (i % 15 == 0) // Apenas 1 em cada 15 estrelas cintila
+                {
+                    float cintilacao = 0.7f + 0.3f * (float)Math.Sin((DateTime.Now.Millisecond + i * 50) * 0.005f);
+                    cor = Color.FromNonPremultiplied(cor.R, cor.G, cor.B, (int)(cor.A * cintilacao));
+                }
+
+                var estrelaRect = new Rectangle((int)posicao.X, (int)posicao.Y, tamanho, tamanho);
+                _spriteBatch.Draw(_pixelTexture, estrelaRect, cor);
+            }
+        }
+    }
+
+    private void InicializarEstrelas()
+    {
         int largura = _spriteBatch.GraphicsDevice.Viewport.Width;
         int altura = _spriteBatch.GraphicsDevice.Viewport.Height;
-        
-        // Calcula o número de estrelas baseado na área da tela
-        int numEstrelas = (largura * altura) / 3200; // Aproximadamente 1 estrela a cada 3200 pixels
-        
-        // Desenha estrelas de fundo com diferentes tamanhos e brilhos
-        for (int i = 0; i < numEstrelas; i++)
+
+        _starPositions = new Vector2[MAX_STARS_COUNT];
+        _starColors = new Color[MAX_STARS_COUNT];
+        _starSizes = new int[MAX_STARS_COUNT];
+
+        for (int i = 0; i < MAX_STARS_COUNT; i++)
         {
-            // Usa a posição i para criar estrelas consistentes
+            // Posição determinística baseada no índice para consistência
             int x = (i * 73 + 123) % largura; // Números primos para distribuição uniforme
             int y = (i * 97 + 456) % altura;
-            
-            // Varia o tamanho e brilho baseado no índice
+            _starPositions[i] = new Vector2(x, y);
+
+            // Cor baseada no tipo de estrela
             int tipo = i % 4;
-            Color cor;
-            int tamanho;
-            
             switch (tipo)
             {
                 case 0: // Estrelas pequenas e fracas
-                    cor = Color.FromNonPremultiplied(255, 255, 255, 80);
-                    tamanho = 1;
+                    _starColors[i] = Color.FromNonPremultiplied(255, 255, 255, 80);
+                    _starSizes[i] = 1;
                     break;
                 case 1: // Estrelas médias
-                    cor = Color.FromNonPremultiplied(255, 255, 255, 120);
-                    tamanho = 1;
+                    _starColors[i] = Color.FromNonPremultiplied(255, 255, 255, 120);
+                    _starSizes[i] = 1;
                     break;
                 case 2: // Estrelas brilhantes
-                    cor = Color.FromNonPremultiplied(255, 255, 255, 180);
-                    tamanho = 2;
+                    _starColors[i] = Color.FromNonPremultiplied(255, 255, 255, 180);
+                    _starSizes[i] = 2;
                     break;
                 default: // Estrelas muito brilhantes (raras)
-                    cor = Color.White;
-                    tamanho = 2;
-                    // Adiciona efeito de cintilação
-                    float cintilacao = 0.8f + 0.2f * (float)Math.Sin((DateTime.Now.Millisecond + i * 100) * 0.01f);
-                    cor = Color.FromNonPremultiplied(255, 255, 255, (int)(255 * cintilacao));
+                    _starColors[i] = Color.White;
+                    _starSizes[i] = 2;
                     break;
             }
-            
-            var estrelaRect = new Rectangle(x, y, tamanho, tamanho);
-            _spriteBatch.Draw(_pixelTexture, estrelaRect, cor);
-            
-            // Para estrelas maiores, adiciona um brilho sutil
-            if (tamanho > 1)
-            {
-                Color corBrilho = Color.FromNonPremultiplied(255, 255, 255, 40);
-                var brilhoRect = new Rectangle(x - 1, y - 1, tamanho + 2, tamanho + 2);
-                _spriteBatch.Draw(_pixelTexture, brilhoRect, corBrilho);
-            }
         }
+
+        _starsInitialized = true;
     }
 
     private void DesenharAsteroides()
@@ -570,11 +654,25 @@ public class TelaJogo
 
         if (lista == null || lista.Count == 0) return;
 
+        // Otimização: Culling - só desenha asteroides visíveis na tela
+        int larguraTela = _spriteBatch.GraphicsDevice.Viewport.Width;
+        int alturaTela = _spriteBatch.GraphicsDevice.Viewport.Height;
+        int margem = 100; // Margem extra para objetos parcialmente visíveis
+
         foreach (var a in lista)
         {
+            // Culling - verifica se o asteroide está visível na tela
+            if (a.Posicao.X + a.Raio < -margem || a.Posicao.X - a.Raio > larguraTela + margem ||
+                a.Posicao.Y + a.Raio < -margem || a.Posicao.Y - a.Raio > alturaTela + margem)
+            {
+                continue; // Pula asteroides fora da tela
+            }
+
             // --- INÍCIO DA ALTERAÇÃO ---
             // Desenha o sprite do asteroide em vez da forma geométrica
-            var textura = PersonalizacaoJogador.TexturasAsteroide[a.TipoTextura];
+            var textura =  PersonalizacaoJogador.TexturasAsteroide?[a.TipoTextura];
+            if (textura == null) return;
+
             var origem = new Vector2(textura.Width / 2, textura.Height / 2);
             // Ajusta o tamanho do sprite para corresponder ao raio do asteroide
             float escala = (a.Raio * 2) / textura.Width;
@@ -588,8 +686,20 @@ public class TelaJogo
     {
         if (_estadoJogo?.Tiros == null) return;
 
+        // Otimização: Culling - só desenha tiros visíveis na tela
+        int larguraTela = _spriteBatch.GraphicsDevice.Viewport.Width;
+        int alturaTela = _spriteBatch.GraphicsDevice.Viewport.Height;
+        int margem = 50; // Margem para tiros
+
         foreach (var tiro in _estadoJogo.Tiros)
         {
+            // Culling - verifica se o tiro está visível na tela
+            if (tiro.Posicao.X < -margem || tiro.Posicao.X > larguraTela + margem ||
+                tiro.Posicao.Y < -margem || tiro.Posicao.Y > alturaTela + margem)
+            {
+                continue; // Pula tiros fora da tela
+            }
+
             Color cor;
             
             // Define cor específica para tiros do jogador atual
@@ -662,7 +772,9 @@ public class TelaJogo
             }
 
             // Usa o ModeloNave que veio do servidor para desenhar a textura correta
-            var textura = PersonalizacaoJogador.TexturasNave[(int)nave.ModeloNave];
+            var textura = PersonalizacaoJogador.TexturasNave?[(int)nave.ModeloNave];
+            if (textura == null) continue;
+
             var origem = new Vector2(textura.Width / 2, textura.Height / 2);
             _spriteBatch.Draw(textura, nave.Posicao, null, corNave, nave.Rotacao, origem, nave.Tamanho, SpriteEffects.None, 0f);
         }
@@ -670,10 +782,38 @@ public class TelaJogo
 
     private void DesenharParticulas()
     {
-        // Desenha partículas de efeitos
-        foreach (var particula in _particulas)
+        // Otimização ultra-agressiva para 144 FPS: Reduz drasticamente partículas desenhadas
+        int maxParticulasRender = Math.Min(_particulas.Count, MAX_PARTICULAS_RENDER);
+        
+        // Culling otimizado
+        int larguraTela = _spriteBatch.GraphicsDevice.Viewport.Width;
+        int alturaTela = _spriteBatch.GraphicsDevice.Viewport.Height;
+        int margem = 15; // Margem reduzida
+        
+        int particulasDesenhadas = 0;
+        
+        // Desenha apenas as partículas mais recentes e visíveis
+        for (int i = _particulas.Count - 1; i >= 0 && particulasDesenhadas < maxParticulasRender; i--)
         {
-            DesenharParticulaComEfeito(particula);
+            var particula = _particulas[i];
+            
+            // Culling agressivo
+            if (particula.Posicao.X < -margem || particula.Posicao.X > larguraTela + margem ||
+                particula.Posicao.Y < -margem || particula.Posicao.Y > alturaTela + margem)
+            {
+                continue;
+            }
+            
+            // Desenho simplificado para melhor performance
+            int x = (int)particula.Posicao.X;
+            int y = (int)particula.Posicao.Y;
+            
+            // Tamanho fixo pequeno para melhor performance
+            int tamanho = 2;
+            var particulaRect = new Rectangle(x - 1, y - 1, tamanho, tamanho);
+            _spriteBatch.Draw(_pixelTexture, particulaRect, particula.Cor);
+            
+            particulasDesenhadas++;
         }
     }
 
@@ -836,6 +976,18 @@ public class TelaJogo
             }
         }
 
+        // Contador de FPS - canto inferior direito
+        string fpsTexto = $"FPS: {_currentFps}";
+        var tamanhoFps = _font.MeasureString(fpsTexto);
+        var posicaoFps = new Vector2(largura - tamanhoFps.X - 10, altura - tamanhoFps.Y - 10);
+        
+        // Cor do FPS otimizada para 144 FPS (verde > 120, amarelo 90-120, laranja 60-90, vermelho < 60)
+        Color corFps = _currentFps >= 120 ? Color.LimeGreen : 
+                      _currentFps >= 90 ? Color.Yellow : 
+                      _currentFps >= 60 ? Color.Orange : Color.Red;
+        
+        DesenharTextoComSombra(fpsTexto, posicaoFps, corFps, Color.Black, new Vector2(1, 1));
+
         // Status do jogo - posição responsiva na parte inferior
         if (!_jogoAtivo)
         {
@@ -890,36 +1042,31 @@ public class TelaJogo
 
     private void AdicionarEfeitoTiro()
     {
+        // Verifica se já temos muitas partículas (otimização agressiva)
+        if (_particulas.Count >= MAX_PARTICULAS * 0.8f) return; // Para antes de atingir o limite
+
         // Encontra a posição da nave do jogador
         var nave = _estadoJogo?.Naves.FirstOrDefault(n => n.JogadorId == _meuJogadorId);
         if (nave != null)
         {
-            // Adiciona partículas de efeito do tiro mais elaboradas
-            for (int i = 0; i < 8; i++)
+            // Drasticamente reduzido - apenas 2-3 partículas por tiro para 144 FPS
+            int numParticulas = Math.Min(3, MAX_PARTICULAS - _particulas.Count);
+            
+            // Adiciona apenas partículas essenciais
+            for (int i = 0; i < numParticulas; i++)
             {
                 Vector2 velocidade = new Vector2(
-                    _random.Next(-3, 4), 
-                    _random.Next(-6, -2)
+                    _random.Next(-2, 3), 
+                    _random.Next(-4, -1)
                 );
                 
-                Color corParticula = i < 4 ? Color.Orange : Color.Red;
+                Color corParticula = i < 2 ? Color.Orange : Color.Red;
                 
                 _particulas.Add(new Particula(
-                    nave.Posicao + new Vector2(_random.Next(-8, 9), -12),
+                    nave.Posicao + new Vector2(_random.Next(-5, 6), -8),
                     velocidade,
                     corParticula,
-                    20 + _random.Next(0, 20)
-                ));
-            }
-            
-            // Adiciona algumas partículas brilhantes
-            for (int i = 0; i < 3; i++)
-            {
-                _particulas.Add(new Particula(
-                    nave.Posicao + new Vector2(_random.Next(-5, 6), -10),
-                    new Vector2(_random.Next(-1, 2), _random.Next(-3, 0)),
-                    Color.White,
-                    15
+                    15 + _random.Next(0, 10) // Vida mais curta
                 ));
             }
         }
@@ -1009,25 +1156,33 @@ public class TelaJogo
                 _jogoAtivo = false;
                 Console.WriteLine($"Game Over: {msgGameOver.Motivo}");
                 
-                // Se foi um reinício do jogo, reseta a flag
-                if (msgGameOver.Motivo.Contains("reiniciado") || _reiniciarJogo)
+                // Se foi um reinício do jogo, reseta tudo para um novo jogo
+                if (msgGameOver.Motivo.Contains("reiniciado"))
                 {
-                    _reiniciarJogo = false;
                     _gerenciadorDificuldade.Reiniciar();
                     _pontuacao = 0;
                     _estadoGameOver = EstadoGameOver.Fechado;
                     _opcaoSelecionadaGameOver = 0;
                     _jogoAtivo = true;
+                    
+                    // Reset do sistema de votação
+                    _votosReinicioAtuais = 0;
+                    _votosReinicioNecessarios = 0;
+                    
                     Console.WriteLine("Jogo reiniciado com sucesso!");
                 }
                 else
                 {
-                    // Salva recorde no game over normal
+                    // Game Over normal - mostra o menu
                     if (_pontuacao > 0)
                     {
                         SalvarRecorde();
                     }
                     _estadoGameOver = EstadoGameOver.Aberto;
+                    
+                    // Reset do sistema de votação no game over normal
+                    _votosReinicioAtuais = 0;
+                    _votosReinicioNecessarios = 0;
                 }
                 break;
 
@@ -1086,6 +1241,13 @@ public class TelaJogo
                         _pausaEmAndamentoUI = false;
                     }
                 }
+                break;
+                
+            case TipoMensagem.ReiniciarJogo:
+                var msgReinicio = (MensagemReiniciarJogo)mensagem;
+                _votosReinicioAtuais = msgReinicio.VotosAtuais;
+                _votosReinicioNecessarios = msgReinicio.VotosNecessarios;
+                Console.WriteLine($"Progresso votação reinício: {msgReinicio.VotosAtuais}/{msgReinicio.VotosNecessarios}");
                 break;
         }
     }
@@ -1172,6 +1334,7 @@ public class TelaJogo
         if (upPressed)
         {
             _opcaoSelecionadaGameOver = (_opcaoSelecionadaGameOver - 1 + _opcoesGameOver.Length) % _opcoesGameOver.Length;
+            _somClick?.Play(); // Som de navegação
         }
 
         // Navegação para baixo (S/Down)
@@ -1180,21 +1343,56 @@ public class TelaJogo
         if (downPressed)
         {
             _opcaoSelecionadaGameOver = (_opcaoSelecionadaGameOver + 1) % _opcoesGameOver.Length;
+            _somClick?.Play(); // Som de navegação
         }
 
         // Seleção (Enter)
         bool enterPressed = estadoTeclado.IsKeyDown(Keys.Enter) && !_estadoTecladoAnterior.IsKeyDown(Keys.Enter);
         if (enterPressed)
         {
+            _somClick?.Play(); // Som de confirmação
             switch (_opcaoSelecionadaGameOver)
             {
                 case 0: // Reiniciar Jogo
-                    _reiniciarJogo = true;
+                    Console.WriteLine($"Jogador {_meuJogadorId} selecionou 'Reiniciar Jogo'");
+                    
+                    // Verifica se é single player ou multiplayer
+                    int jogadoresConectados = _estadoJogo?.Naves?.Count ?? 1;
+                    
+                    if (jogadoresConectados == 1)
+                    {
+                        Console.WriteLine("Modo single player - reinício imediato solicitado.");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Modo multiplayer ({jogadoresConectados} jogadores) - iniciando sistema de votação.");
+                    }
+                    
+                    // Envia mensagem para o servidor solicitando reinício
+                    _ = _clienteRede.EnviarMensagemAsync(new MensagemReiniciarJogo 
+                    { 
+                        JogadorVotou = _meuJogadorId 
+                    });
                     break;
+                    
                 case 1: // Voltar ao Menu
+                    Console.WriteLine($"Jogador {_meuJogadorId} selecionou 'Voltar ao Menu'");
+                    // Reset completo de estados antes de voltar ao menu
+                    _estadoJogo = null;
+                    _estadoGameOver = EstadoGameOver.Fechado;
+                    _opcaoSelecionadaGameOver = 0;
+                    _jogoAtivo = true;
+                    // Reset estados de pausa e confirmação
+                    _pausaEmAndamentoUI = false;
+                    _pausaTotal = 0;
+                    _pausaConfirmados.Clear();
+                    _pausaPendentes.Clear();
+                    _estadoMenuPausa = EstadoMenuPausa.Fechado;
                     VoltarAoMenu = true;
                     break;
+                    
                 case 2: // Sair do Jogo
+                    Console.WriteLine($"Jogador {_meuJogadorId} selecionou 'Sair do Jogo'");
                     Sair = true;
                     SairDoJogo = true;
                     break;
@@ -1337,58 +1535,240 @@ public class TelaJogo
         
         // Fundo semi-transparente adicional para o menu
         var fundoMenuRect = new Rectangle(0, 0, largura, altura);
-        _spriteBatch.Draw(_pixelTexture, fundoMenuRect, Color.FromNonPremultiplied(0, 0, 0, 150));
+        _spriteBatch.Draw(_pixelTexture, fundoMenuRect, Color.FromNonPremultiplied(0, 0, 0, 180));
 
-        // Painel do menu - maior e mais centralizado
-        int larguraMenu = 500;
-        int alturaMenu = 350;
+        // Painel do menu - maior para acomodar todas as informações
+        int larguraMenu = 700;
+        int alturaMenu = 600;
         int x = (largura - larguraMenu) / 2;
         int y = (altura - alturaMenu) / 2;
 
         var painelRect = new Rectangle(x, y, larguraMenu, alturaMenu);
-        _spriteBatch.Draw(_pixelTexture, painelRect, Color.FromNonPremultiplied(20, 20, 40, 240));
+        _spriteBatch.Draw(_pixelTexture, painelRect, Color.FromNonPremultiplied(30, 20, 20, 250));
         DesenharBorda(painelRect, Color.Red, 4);
 
-        // Título "GAME OVER"
+        // Título "GAME OVER" - mais destaque
         string tituloGameOver = "GAME OVER";
         var tamanhoTituloGameOver = _fonte.MeasureString(tituloGameOver);
         var posicaoTituloGameOver = new Vector2(x + (larguraMenu - tamanhoTituloGameOver.X) / 2, y + 30);
+        
+        // Efeito de sombra no título
+        _spriteBatch.DrawString(_fonte, tituloGameOver, posicaoTituloGameOver + new Vector2(3, 3), Color.Black);
         _spriteBatch.DrawString(_fonte, tituloGameOver, posicaoTituloGameOver, Color.Red);
 
-        // Subtítulo
+        // Informações do jogo atual
+        if (_estadoJogo?.Naves != null && _estadoJogo.Naves.Count > 0)
+        {
+            var minhaNave = _estadoJogo.Naves.FirstOrDefault(n => n.JogadorId == _meuJogadorId);
+            if (minhaNave != null)
+            {
+                string infoPontuacao = $"Sua Pontuacao: {minhaNave.Pontuacao} pontos";
+                var tamanhoInfo = _fonte.MeasureString(infoPontuacao);
+                var posicaoInfo = new Vector2(x + (larguraMenu - tamanhoInfo.X) / 2, y + 90);
+                _spriteBatch.DrawString(_fonte, infoPontuacao, posicaoInfo + new Vector2(1, 1), Color.Black);
+                _spriteBatch.DrawString(_fonte, infoPontuacao, posicaoInfo, Color.Yellow);
+
+                // Verifica se é um novo recorde
+                bool novoRecorde = _gerenciadorRecordes.AdicionarRecorde(
+                    "Jogador", minhaNave.Pontuacao, _gerenciadorDificuldade.NivelAtual);
+                
+                if (novoRecorde)
+                {
+                    string textoRecorde = "*** NOVO RECORDE! ***";
+                    var tamanhoRecorde = _fonte.MeasureString(textoRecorde);
+                    var posicaoRecorde = new Vector2(x + (larguraMenu - tamanhoRecorde.X) / 2, posicaoInfo.Y + 25);
+                    
+                    _spriteBatch.DrawString(_fonte, textoRecorde, posicaoRecorde + new Vector2(2, 2), Color.Black);
+                    _spriteBatch.DrawString(_fonte, textoRecorde, posicaoRecorde, Color.Gold);
+                }
+            }
+
+            // Melhor recorde atual
+            var melhorRecorde = _gerenciadorRecordes.ObterMelhorRecorde(_gerenciadorDificuldade.NivelAtual);
+            if (melhorRecorde != null)
+            {
+                string textoMelhorRecorde = $"Melhor Recorde: {melhorRecorde.Pontuacao} pts";
+                var tamanhoMelhorRecorde = _fonte.MeasureString(textoMelhorRecorde);
+                var posicaoMelhorRecorde = new Vector2(x + (larguraMenu - tamanhoMelhorRecorde.X) / 2, y + 135);
+                
+                _spriteBatch.DrawString(_fonte, textoMelhorRecorde, posicaoMelhorRecorde + new Vector2(1, 1), Color.Black);
+                _spriteBatch.DrawString(_fonte, textoMelhorRecorde, posicaoMelhorRecorde, Color.LightGreen);
+            }
+
+            // Informações sobre modo multiplayer
+            if (_estadoJogo.Naves.Count > 1)
+            {
+                string infoMultiplayer = $"Jogadores Conectados: {_estadoJogo.Naves.Count}";
+                var tamanhoMulti = _fonte.MeasureString(infoMultiplayer);
+                var posicaoMulti = new Vector2(x + (larguraMenu - tamanhoMulti.X) / 2, y + 160);
+                _spriteBatch.DrawString(_fonte, infoMultiplayer, posicaoMulti + new Vector2(1, 1), Color.Black);
+                _spriteBatch.DrawString(_fonte, infoMultiplayer, posicaoMulti, Color.Cyan);
+            }
+            else
+            {
+                string infoSingle = "Modo Single Player";
+                var tamanhoSingle = _fonte.MeasureString(infoSingle);
+                var posicaoSingle = new Vector2(x + (larguraMenu - tamanhoSingle.X) / 2, y + 160);
+                _spriteBatch.DrawString(_fonte, infoSingle, posicaoSingle + new Vector2(1, 1), Color.Black);
+                _spriteBatch.DrawString(_fonte, infoSingle, posicaoSingle, Color.LightGreen);
+            }
+        }
+
+        // Título do menu de opções
         string subtitulo = "ESCOLHA UMA OPCAO";
         var tamanhoSubtitulo = _fonte.MeasureString(subtitulo);
-        var posicaoSubtitulo = new Vector2(x + (larguraMenu - tamanhoSubtitulo.X) / 2, y + 80);
-        _spriteBatch.DrawString(_fonte, subtitulo, posicaoSubtitulo, Color.Yellow);
+        var posicaoSubtitulo = new Vector2(x + (larguraMenu - tamanhoSubtitulo.X) / 2, y + 200);
+        _spriteBatch.DrawString(_fonte, subtitulo, posicaoSubtitulo + new Vector2(1, 1), Color.Black);
+        _spriteBatch.DrawString(_fonte, subtitulo, posicaoSubtitulo, Color.White);
 
-        // Opções do menu - melhor espaçamento
-        Color[] cores = { Color.White, Color.White, Color.White };
-        cores[_opcaoSelecionadaGameOver] = Color.Yellow;
-
-        int inicioOpcoes = y + 140;
-        int espacamentoOpcoes = 50;
+        // Desenha as opções do menu com indicadores visuais aprimorados
+        int inicioOpcoes = y + 250;
+        int espacamentoOpcoes = 75; // Aumentado para acomodar as descrições
 
         for (int i = 0; i < _opcoesGameOver.Length; i++)
         {
             var tamanhoOpcao = _fonte.MeasureString(_opcoesGameOver[i]);
             var posicaoOpcao = new Vector2(x + (larguraMenu - tamanhoOpcao.X) / 2, inicioOpcoes + i * espacamentoOpcoes);
-            _spriteBatch.DrawString(_fonte, _opcoesGameOver[i], posicaoOpcao, cores[i]);
+            
+            // Cor da opção (selecionada ou normal)
+            bool selecionado = i == _opcaoSelecionadaGameOver;
+            Color corOpcao = selecionado ? Color.Yellow : Color.White;
+            Color corSombra = Color.Black;
 
-            // Indicador de seleção - melhor posicionado
-            if (i == _opcaoSelecionadaGameOver)
+            // Fundo destacado para a opção selecionada - mais elaborado
+            if (selecionado)
             {
-                var indicadorRect = new Rectangle((int)posicaoOpcao.X - 30, (int)posicaoOpcao.Y + 8, 20, 20);
-                _spriteBatch.Draw(_pixelTexture, indicadorRect, Color.Yellow);
+                var fundoSelecao = new Rectangle(
+                    (int)posicaoOpcao.X - 60, 
+                    (int)posicaoOpcao.Y - 8, 
+                    (int)tamanhoOpcao.X + 120, 
+                    45
+                );
                 
-                // Borda do indicador
-                DesenharBorda(indicadorRect, Color.Orange, 2);
+                // Gradiente simulado com duas camadas
+                _spriteBatch.Draw(_pixelTexture, fundoSelecao, Color.FromNonPremultiplied(100, 100, 0, 80));
+                
+                var fundoInterno = new Rectangle(
+                    fundoSelecao.X + 3,
+                    fundoSelecao.Y + 3,
+                    fundoSelecao.Width - 6,
+                    fundoSelecao.Height - 6
+                );
+                _spriteBatch.Draw(_pixelTexture, fundoInterno, Color.FromNonPremultiplied(150, 150, 0, 40));
+                
+                // Bordas duplas para mais destaque
+                DesenharBorda(fundoSelecao, Color.Orange, 2);
+                DesenharBorda(fundoInterno, Color.Yellow, 1);
+            }
+
+            // Desenha sombra
+            _spriteBatch.DrawString(_fonte, _opcoesGameOver[i], posicaoOpcao + new Vector2(2, 2), corSombra);
+            // Desenha texto principal
+            _spriteBatch.DrawString(_fonte, _opcoesGameOver[i], posicaoOpcao, corOpcao);
+
+            // Indicadores visuais aprimorados para opção selecionada
+            if (selecionado)
+            {
+                // Seta à esquerda - mais elaborada
+                string setaEsquerda = "► ";
+                var tamanhoSetaEsq = _fonte.MeasureString(setaEsquerda);
+                var posicaoSetaEsq = new Vector2(posicaoOpcao.X - 50, posicaoOpcao.Y);
+                _spriteBatch.DrawString(_fonte, setaEsquerda, posicaoSetaEsq + new Vector2(1, 1), Color.Black);
+                _spriteBatch.DrawString(_fonte, setaEsquerda, posicaoSetaEsq, Color.Orange);
+
+                // Seta à direita
+                string setaDireita = " ◄";
+                var tamanhoSetaDir = _fonte.MeasureString(setaDireita);
+                var posicaoSetaDir = new Vector2(posicaoOpcao.X + tamanhoOpcao.X + 20, posicaoOpcao.Y);
+                _spriteBatch.DrawString(_fonte, setaDireita, posicaoSetaDir + new Vector2(1, 1), Color.Black);
+                _spriteBatch.DrawString(_fonte, setaDireita, posicaoSetaDir, Color.Orange);
+
+                // Brilho adicional no texto selecionado
+                _spriteBatch.DrawString(_fonte, _opcoesGameOver[i], posicaoOpcao, Color.FromNonPremultiplied(255, 255, 255, 100));
+            }
+
+            // Adiciona ícones/descrições para cada opção
+            string descricaoOpcao = "";
+            Color corDescricao = Color.Gray;
+            
+            switch (i)
+            {
+                case 0: // Reiniciar Jogo
+                    if (_estadoJogo?.Naves?.Count == 1)
+                    {
+                        descricaoOpcao = "(Reinicio imediato)";
+                        corDescricao = Color.LightGreen;
+                    }
+                    else if (_estadoJogo?.Naves?.Count > 1)
+                    {
+                        descricaoOpcao = "(Requer votacao)";
+                        corDescricao = Color.Orange;
+                    }
+                    break;
+                case 1: // Voltar ao Menu
+                    descricaoOpcao = "(Retorna ao menu principal)";
+                    break;
+                case 2: // Sair do Jogo
+                    descricaoOpcao = "(Encerra o jogo)";
+                    break;
+            }
+
+            if (!string.IsNullOrEmpty(descricaoOpcao))
+            {
+                var tamanhoDesc = _fonte.MeasureString(descricaoOpcao);
+                var posicaoDesc = new Vector2(x + (larguraMenu - tamanhoDesc.X) / 2, posicaoOpcao.Y + 25);
+                _spriteBatch.DrawString(_fonte, descricaoOpcao, posicaoDesc + new Vector2(1, 1), Color.Black);
+                _spriteBatch.DrawString(_fonte, descricaoOpcao, posicaoDesc, corDescricao);
             }
         }
 
-        // Instruções - melhor posicionadas
+        // Mostra progresso da votação se estiver em modo multiplayer e houver votação
+        if (_estadoJogo?.Naves?.Count > 1 && _votosReinicioNecessarios > 1 && 
+            _votosReinicioAtuais > 0 && _votosReinicioAtuais < _votosReinicioNecessarios)
+        {
+            string progressoVotacao = $"Votacao para Reinicio: {_votosReinicioAtuais}/{_votosReinicioNecessarios} jogadores";
+            var tamanhoProgresso = _fonte.MeasureString(progressoVotacao);
+            var posicaoProgresso = new Vector2(x + (larguraMenu - tamanhoProgresso.X) / 2, inicioOpcoes + _opcoesGameOver.Length * espacamentoOpcoes + 30);
+            
+            // Fundo para o progresso da votação - mais elaborado
+            var fundoProgresso = new Rectangle((int)posicaoProgresso.X - 15, (int)posicaoProgresso.Y - 8, (int)tamanhoProgresso.X + 30, 35);
+            _spriteBatch.Draw(_pixelTexture, fundoProgresso, Color.FromNonPremultiplied(50, 50, 100, 220));
+            
+            var fundoInternoProgresso = new Rectangle(fundoProgresso.X + 2, fundoProgresso.Y + 2, fundoProgresso.Width - 4, fundoProgresso.Height - 4);
+            _spriteBatch.Draw(_pixelTexture, fundoInternoProgresso, Color.FromNonPremultiplied(80, 80, 150, 180));
+            
+            DesenharBorda(fundoProgresso, Color.Orange, 2);
+            DesenharBorda(fundoInternoProgresso, Color.Cyan, 1);
+            
+            _spriteBatch.DrawString(_fonte, progressoVotacao, posicaoProgresso + new Vector2(2, 2), Color.Black);
+            _spriteBatch.DrawString(_fonte, progressoVotacao, posicaoProgresso, Color.Orange);
+            
+            // Indicador visual de progresso
+            string indicadorProgresso = ">>> Aguardando outros jogadores... <<<";
+            var tamanhoIndicador = _fonte.MeasureString(indicadorProgresso);
+            var posicaoIndicador = new Vector2(x + (larguraMenu - tamanhoIndicador.X) / 2, posicaoProgresso.Y + 30);
+            _spriteBatch.DrawString(_fonte, indicadorProgresso, posicaoIndicador + new Vector2(1, 1), Color.Black);
+            _spriteBatch.DrawString(_fonte, indicadorProgresso, posicaoIndicador, Color.Yellow);
+        }
+
+        // Instruções de controle - mais claras e informativas
         string instrucoes = "W/S ou ↑/↓: Navegar | Enter: Selecionar | M: Menu de Pausa";
         var tamanhoInstrucoes = _fonte.MeasureString(instrucoes);
-        var posicaoInstrucoes = new Vector2(x + (larguraMenu - tamanhoInstrucoes.X) / 2, y + alturaMenu - 40);
+        
+        // Ajusta as instruções se forem muito grandes
+        if (tamanhoInstrucoes.X > larguraMenu - 20)
+        {
+            instrucoes = "W/S: Navegar | Enter: Selecionar";
+            tamanhoInstrucoes = _fonte.MeasureString(instrucoes);
+        }
+        
+        var posicaoInstrucoes = new Vector2(x + (larguraMenu - tamanhoInstrucoes.X) / 2, y + alturaMenu - 50);
+        
+        // Fundo para as instruções
+        var fundoInstrucoes = new Rectangle((int)posicaoInstrucoes.X - 10, (int)posicaoInstrucoes.Y - 5, (int)tamanhoInstrucoes.X + 20, 30);
+        _spriteBatch.Draw(_pixelTexture, fundoInstrucoes, Color.FromNonPremultiplied(20, 20, 20, 180));
+        
+        _spriteBatch.DrawString(_fonte, instrucoes, posicaoInstrucoes + new Vector2(1, 1), Color.Black);
         _spriteBatch.DrawString(_fonte, instrucoes, posicaoInstrucoes, Color.Gray);
     }
 

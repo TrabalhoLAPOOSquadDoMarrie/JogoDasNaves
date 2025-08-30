@@ -8,7 +8,7 @@ namespace AsteroidesCliente.Game
     public class GerenciadorDificuldade
     {
         private NivelDificuldade _nivelAtual;
-        private int _tempoJogo; // Em frames (60 fps)
+        private int _tempoJogo; // Em frames (144 fps)
         private float _velocidadeBase;
         private float _velocidadeAtual;
         
@@ -28,7 +28,7 @@ namespace AsteroidesCliente.Game
         
         public NivelDificuldade NivelAtual => _nivelAtual;
         public float VelocidadeAtual => _velocidadeAtual;
-        public int TempoJogoSegundos => _tempoJogo / 60;
+        public int TempoJogoSegundos => _tempoJogo / 144;
         
         public GerenciadorDificuldade(NivelDificuldade nivel = NivelDificuldade.Medio)
         {
@@ -44,7 +44,7 @@ namespace AsteroidesCliente.Game
         public void Atualizar()
         {
             _tempoJogo++;
-            int segundos = _tempoJogo / 60;
+            int segundos = _tempoJogo / 144;
             
             switch (_nivelAtual)
             {
@@ -117,7 +117,7 @@ namespace AsteroidesCliente.Game
         /// </summary>
         public string ObterInfoDetalhada()
         {
-            int segundos = _tempoJogo / 60;
+            int segundos = _tempoJogo / 144;
             string fase = "";
             
             switch (_nivelAtual)
@@ -148,7 +148,7 @@ namespace AsteroidesCliente.Game
         /// </summary>
         public int CalcularQuantidadeAsteroides()
         {
-            int segundos = _tempoJogo / 60;
+            int segundos = _tempoJogo / 144;
             
             switch (_nivelAtual)
             {
@@ -184,7 +184,7 @@ namespace AsteroidesCliente.Game
         /// </summary>
         public int CalcularIntervaloSpawn()
         {
-            int segundos = _tempoJogo / 60;
+            int segundos = _tempoJogo / 144;
             
             switch (_nivelAtual)
             {

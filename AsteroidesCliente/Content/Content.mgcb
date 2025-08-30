@@ -35,3 +35,21 @@
 /processor:SoundEffectProcessor
 /processorParam:Quality=Best
 /build:Sounds/click.wav
+
+#begin Sounds/Mantis-Lords.ogg
+/importer:OggImporter
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:Sounds/Mantis-Lords.ogg
+
+#begin Sounds/Medley.ogg
+/importer:OggImporter
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:Sounds/Medley.ogg
+
+#begin Sounds/Metallica-Enter-Sandman.ogg
+/importer:OggImporter
+/processor:SongProcessor
+/processorParam:Quality=Best
+/build:Sounds/Metallica-Enter-Sandman.ogg

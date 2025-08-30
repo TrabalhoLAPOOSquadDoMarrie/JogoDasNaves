@@ -32,6 +32,15 @@ public class PersonalizacaoJogador
         GalaxiaEspiral
     }
 
+    public enum TipoMusica
+    {
+        Desabilitada,
+        MantisLords,
+        Medley,
+        Metallica,
+        Aleatoria
+    }
+
     // Propriedades de personalizacao
     public Color CorNave { get; set; } = Color.CornflowerBlue;
     public Color CorDetalhesNave { get; set; } = Color.LightBlue;
@@ -40,10 +49,11 @@ public class PersonalizacaoJogador
     public TipoNave ModeloNave { get; set; } = TipoNave.Nave1;
     public TipoMeteoro ModeloMeteoro { get; set; } = TipoMeteoro.Rochoso;
     public TipoFundo ModeloFundo { get; set; } = TipoFundo.EspacoProfundo;
+    public TipoMusica MusicaFundo { get; set; } = TipoMusica.MantisLords;
 
     // Texturas das naves
-    public static Texture2D[] TexturasNave { get; set; }
-    public static Texture2D[] TexturasAsteroide { get; set; }
+    public static Texture2D[]? TexturasNave { get; set; }
+    public static Texture2D[]? TexturasAsteroide { get; set; }
 
     // Cores predefinidas para selecao rapida
     public static readonly Color[] CoresDisponiveis = {
@@ -120,7 +130,8 @@ public class PersonalizacaoJogador
                 $"CorFundo={CorFundo.R},{CorFundo.G},{CorFundo.B}",
                 $"ModeloNave={ModeloNave}",
                 $"ModeloMeteoro={ModeloMeteoro}",
-                $"ModeloFundo={ModeloFundo}"
+                $"ModeloFundo={ModeloFundo}",
+                $"MusicaFundo={MusicaFundo}"
             };
             File.WriteAllLines(caminho, linhas);
         }
@@ -177,6 +188,10 @@ public class PersonalizacaoJogador
                         if (Enum.TryParse<TipoFundo>(valor, out var tipoFundo))
                             ModeloFundo = tipoFundo;
                         break;
+                    case "MusicaFundo":
+                        if (Enum.TryParse<TipoMusica>(valor, out var tipoMusica))
+                            MusicaFundo = tipoMusica;
+                        break;
                 }
             }
         }
@@ -184,5 +199,52 @@ public class PersonalizacaoJogador
         {
             // Ignora erros de carregamento
         }
+    }
+
+    /// <summary>
+    /// Obtém o nome do arquivo da música baseado na seleção
+    /// </summary>
+    public string? ObterNomeArquivoMusica()
+    {
+        return MusicaFundo switch
+        {
+            TipoMusica.Desabilitada => null,
+            TipoMusica.MantisLords => "Sounds/Mantis-Lords",
+            TipoMusica.Medley => "Sounds/Medley", 
+            TipoMusica.Metallica => "Sounds/Metallica-Enter-Sandman",
+            TipoMusica.Aleatoria => ObterMusicaAleatoria(),
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// Obtém o nome amigável da música selecionada
+    /// </summary>
+    public string ObterNomeAmigavelMusica()
+    {
+        return MusicaFundo switch
+        {
+            TipoMusica.Desabilitada => "Desabilitada",
+            TipoMusica.MantisLords => "Mantis Lords",
+            TipoMusica.Medley => "Medley Clássico",
+            TipoMusica.Metallica => "Enter Sandman",
+            TipoMusica.Aleatoria => "Aleatória",
+            _ => "Desconhecida"
+        };
+    }
+
+    /// <summary>
+    /// Seleciona uma música aleatória (exceto Desabilitada e Aleatoria)
+    /// </summary>
+    private string ObterMusicaAleatoria()
+    {
+        var musicas = new[] 
+        {
+            "Sounds/Mantis-Lords",
+            "Sounds/Medley", 
+            "Sounds/Metallica-Enter-Sandman"
+        };
+        var random = new Random();
+        return musicas[random.Next(musicas.Length)];
     }
 }

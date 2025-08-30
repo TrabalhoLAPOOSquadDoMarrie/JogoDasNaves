@@ -15,11 +15,12 @@ public class ServidorAsteroides
     private readonly Dictionary<int, ClienteConectado> _clientes = new();
     private readonly EstadoJogo _estadoJogo = new();
     private readonly object _lockClientes = new();
+    private readonly HashSet<int> _votosReinicio = new(); // IDs dos jogadores que votaram para reiniciar
     
     private bool _rodando = false;  
     private int _proximoIdJogador = 1;
     private const int PortaPadrao = 8890;
-    private const int TicksPerSecond = 60; // 60 FPS
+    private const int TicksPerSecond = 144; // 144 FPS para alta performance
     private const int TickInterval = 1000 / TicksPerSecond;
 
     public ServidorAsteroides(int porta = PortaPadrao)
@@ -187,7 +188,8 @@ public class ServidorAsteroides
                         msgMovimento.Esquerda,
                         msgMovimento.Direita,
                         msgMovimento.Cima,
-                        msgMovimento.Baixo
+                        msgMovimento.Baixo,
+                        (float)(TickInterval / 1000.0) // deltaTime em segundos
                     );
                     break;
 
@@ -206,17 +208,76 @@ public class ServidorAsteroides
                     break;
                     
                 case TipoMensagem.ReiniciarJogo:
-                    Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) solicitou reinício do jogo");
-                    _estadoJogo.ReiniciarJogo();
+                    int totalJogadores;
+                    int votosAtuais;
+                    bool deveReiniciar = false;
+                    MensagemBase? mensagemParaBroadcast = null;
                     
-                    // Envia confirmação de reinício para todos os clientes
-                    await BroadcastMensagemAsync(new MensagemGameOver
+                    lock (_lockClientes)
                     {
-                        Motivo = "Jogo foi reiniciado!",
-                        PontuacaoFinal = new List<DadosNave>()
-                    });
+                        totalJogadores = _clientes.Values.Where(c => c.Conectado).Count();
+                        
+                        // Se há apenas um jogador, permite reinício imediato
+                        if (totalJogadores == 1)
+                        {
+                            deveReiniciar = true;
+                            _votosReinicio.Clear();
+                            
+                            Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) reiniciou o jogo (modo single player)");
+                            mensagemParaBroadcast = new MensagemGameOver
+                            {
+                                Motivo = "Jogo foi reiniciado!",
+                                PontuacaoFinal = new List<DadosNave>()
+                            };
+                        }
+                        else
+                        {
+                            // Modo multiplayer: requer votação
+                            if (!_votosReinicio.Contains(cliente.Id))
+                            {
+                                _votosReinicio.Add(cliente.Id);
+                                Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) votou para reiniciar. Votos: {_votosReinicio.Count}/{totalJogadores}");
+                            }
+                            
+                            votosAtuais = _votosReinicio.Count;
+                            
+                            // Verifica se todos os jogadores conectados votaram
+                            if (votosAtuais >= totalJogadores && totalJogadores > 0)
+                            {
+                                // Todos concordaram - prepara reinício
+                                deveReiniciar = true;
+                                _votosReinicio.Clear();
+                                
+                                mensagemParaBroadcast = new MensagemGameOver
+                                {
+                                    Motivo = $"Jogo reiniciado! Todos os {totalJogadores} jogadores concordaram.",
+                                    PontuacaoFinal = new List<DadosNave>()
+                                };
+                            }
+                            else
+                            {
+                                // Notifica sobre a votação em andamento
+                                mensagemParaBroadcast = new MensagemReiniciarJogo
+                                {
+                                    VotosAtuais = votosAtuais,
+                                    VotosNecessarios = totalJogadores,
+                                    JogadorVotou = cliente.Id
+                                };
+                            }
+                        }
+                    }
                     
-                    Console.WriteLine("Jogo reiniciado e confirmação enviada aos clientes");
+                    // Executa ações fora do lock
+                    if (deveReiniciar)
+                    {
+                        _estadoJogo.ReiniciarJogo();
+                        Console.WriteLine($"Jogo reiniciado por consenso de {totalJogadores} jogadores");
+                    }
+                    
+                    if (mensagemParaBroadcast != null)
+                    {
+                        await BroadcastMensagemAsync(mensagemParaBroadcast);
+                    }
                     break;
 
                 case TipoMensagem.DesconectarJogador:
@@ -248,7 +309,7 @@ public class ServidorAsteroides
                 if (deltaTime >= TickInterval)
                 {
                     // Atualiza o estado do jogo
-                    _estadoJogo.AtualizarJogo();
+                    _estadoJogo.AtualizarJogo((float)(deltaTime / 1000.0)); // deltaTime em segundos
 
                     // Envia o estado atualizado para todos os clientes
                     var estadoJogo = _estadoJogo.ObterEstadoJogo();
@@ -384,6 +445,8 @@ public class ServidorAsteroides
             lock (_lockClientes)
             {
                 _clientes.Remove(cliente.Id);
+                // Remove voto de reinício se existir
+                _votosReinicio.Remove(cliente.Id);
             }
 
             _estadoJogo.RemoverNave(cliente.Id);

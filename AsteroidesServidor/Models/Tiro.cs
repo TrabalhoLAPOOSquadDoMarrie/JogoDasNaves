@@ -23,9 +23,10 @@ public class Tiro
     /// <summary>
     /// Atualiza a posição do tiro
     /// </summary>
-    public void Atualizar()
+    /// <param name="deltaTime">Tempo decorrido desde o último frame em segundos</param>
+    public void Atualizar(float deltaTime)
     {
-        Posicao += Velocidade;
+        Posicao += Velocidade * deltaTime;
     }
 
     /// <summary>

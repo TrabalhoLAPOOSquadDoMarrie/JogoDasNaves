@@ -25,9 +25,10 @@ public class Asteroide
     /// <summary>
     /// Atualiza a posição do asteroide
     /// </summary>
-    public void Atualizar()
+    /// <param name="deltaTime">Tempo decorrido desde o último frame em segundos</param>
+    public void Atualizar(float deltaTime)
     {
-        Posicao += Velocidade;
+        Posicao += Velocidade * deltaTime;
     }
 
     /// <summary>

@@ -15,8 +15,10 @@ public class Nave
     public int Pontuacao { get; set; }
     public float Tamanho { get; private set; } = 1.0f; // Tamanho base da nave
     public int ModeloNave { get; set; } = 0; // Modelo da nave (0-3)
-    private const float Velocidade = 5f;
-    private const float VelocidadeRotacao = 0.1f; // Velocidade de rotação
+    
+    // Velocidades independentes de framerate (pixels por segundo)
+    private const float VelocidadePorSegundo = 300f; // 300 pixels por segundo
+    private const float VelocidadeRotacaoPorSegundo = 3.0f; // 3 radianos por segundo
     private const float HalfW = 10, HalfH = 10;
     private const int PontosParaCrescimento = 200; // A cada 200 pontos a nave cresce
     private const float IncrementoTamanho = 0.1f; // Incremento de 10% no tamanho
@@ -35,11 +37,12 @@ public class Nave
     /// <summary>
     /// Atualiza a posição da nave baseada nos comandos de movimento
     /// </summary>
-    public void Atualizar(bool esquerda, bool direita, bool cima, bool baixo, int largura, int altura)
+    /// <param name="deltaTime">Tempo decorrido desde o último frame em segundos</param>
+    public void Atualizar(bool esquerda, bool direita, bool cima, bool baixo, int largura, int altura, float deltaTime)
     {
-        // Rotação da nave
-        if (esquerda) Rotacao -= VelocidadeRotacao;
-        if (direita) Rotacao += VelocidadeRotacao;
+        // Rotação da nave (independente de framerate)
+        if (esquerda) Rotacao -= VelocidadeRotacaoPorSegundo * deltaTime;
+        if (direita) Rotacao += VelocidadeRotacaoPorSegundo * deltaTime;
 
         // Movimento baseado na orientação atual
         Vector2 direcao = Vector2.Zero;
@@ -59,7 +62,7 @@ public class Nave
         if (direcao != Vector2.Zero)
         {
             direcao.Normalize();
-            Posicao += direcao * Velocidade;
+            Posicao += direcao * VelocidadePorSegundo * deltaTime;
         }
 
         // Mantém a nave dentro da tela
@@ -83,8 +86,8 @@ public class Nave
         // Posição inicial do tiro (na ponta da nave)
         Vector2 posicaoTiro = Posicao + direcaoTiro * 12;
 
-        // Velocidade do tiro na direção da nave
-        Vector2 velocidadeTiro = direcaoTiro * 8;
+        // Velocidade do tiro na direção da nave (pixels por segundo)
+        Vector2 velocidadeTiro = direcaoTiro * 600f; // 600 pixels por segundo
 
         return new Tiro(tiroId, JogadorId, posicaoTiro, velocidadeTiro);
     }

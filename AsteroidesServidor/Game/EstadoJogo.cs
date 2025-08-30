@@ -24,7 +24,8 @@ public class EstadoJogo
     private int _proximoIdTiro = 1;
     private int _proximoIdAsteroide = 1;
     private int _frameCount = 0;
-    private int _ultimoSpawnAsteroide = 0;
+    private float _tempoJogoSegundos = 0f; // Tempo real de jogo em segundos
+    private float _ultimoSpawnAsteroide = 0f; // Último spawn em segundos
     private bool _gameOverMensagemExibida = false;
 
     public const int LarguraTela = 1200;
@@ -138,13 +139,13 @@ public class EstadoJogo
     /// <summary>
     /// Atualiza o movimento de uma nave
     /// </summary>
-    public void AtualizarMovimentoNave(int jogadorId, bool esquerda, bool direita, bool cima, bool baixo)
+    public void AtualizarMovimentoNave(int jogadorId, bool esquerda, bool direita, bool cima, bool baixo, float deltaTime)
     {
         lock (_lock)
         {
             if (_naves.TryGetValue(jogadorId, out var nave) && nave.Viva)
             {
-                nave.Atualizar(esquerda, direita, cima, baixo, LarguraTela, AlturaTela);
+                nave.Atualizar(esquerda, direita, cima, baixo, LarguraTela, AlturaTela, deltaTime);
             }
         }
     }
@@ -165,9 +166,9 @@ public class EstadoJogo
     }
 
     /// <summary>
-    /// Atualiza o estado completo do jogo
+    /// Atualiza o estado completo do jogo com movimento independente de framerate
     /// </summary>
-    public void AtualizarJogo()
+    public void AtualizarJogo(float deltaTime)
     {
         lock (_lock)
         {
@@ -177,18 +178,19 @@ public class EstadoJogo
             if (SimulacaoPausada) return;
 
             _frameCount++;
+            _tempoJogoSegundos += deltaTime; // Acumula tempo real
 
             // Atualiza tiros
-            AtualizarTiros();
+            AtualizarTiros(deltaTime);
 
             // Atualiza asteroides
-            AtualizarAsteroides();
+            AtualizarAsteroides(deltaTime);
 
             // Verifica colisões usando paralelismo
             VerificarColisoes();
 
-            // Spawna novos asteroides com frequência e quantidade dinâmica
-            SpawnarAsteroidesComDificuldade();
+            // Spawna novos asteroides com base no tempo real, não em frames
+            SpawnarAsteroidesComDificuldade(deltaTime);
 
             // Verifica condição de game over
             VerificarGameOver();
@@ -198,13 +200,13 @@ public class EstadoJogo
     /// <summary>
     /// Atualiza todos os tiros e remove os que saíram da tela
     /// </summary>
-    private void AtualizarTiros()
+    private void AtualizarTiros(float deltaTime)
     {
         var tirosParaRemover = new List<int>();
 
         foreach (var tiro in _tiros.Values)
         {
-            tiro.Atualizar();
+            tiro.Atualizar(deltaTime);
             if (tiro.ForaDaTela(AlturaTela))
             {
                 tirosParaRemover.Add(tiro.Id);
@@ -220,13 +222,13 @@ public class EstadoJogo
     /// <summary>
     /// Atualiza todos os asteroides e remove os que saíram da tela
     /// </summary>
-    private void AtualizarAsteroides()
+    private void AtualizarAsteroides(float deltaTime)
     {
         var asteroidesParaRemover = new List<int>();
 
         foreach (var asteroide in _asteroides.Values)
         {
-            asteroide.Atualizar();
+            asteroide.Atualizar(deltaTime);
             if (asteroide.ForaDaTela(AlturaTela))
             {
                 asteroidesParaRemover.Add(asteroide.Id);
@@ -301,27 +303,37 @@ public class EstadoJogo
     }
 
     /// <summary>
-    /// Spawna asteroides com base na dificuldade e tempo de jogo
+    /// Spawna asteroides com base na dificuldade e tempo de jogo (independente de framerate)
     /// </summary>
-    private void SpawnarAsteroidesComDificuldade()
+    private void SpawnarAsteroidesComDificuldade(float deltaTime)
     {
-        // Calcula intervalo baseado no tempo (começa com 90 frames e diminui gradualmente até 30)
-        int segundos = _frameCount / 60;
-        int intervaloSpawn = Math.Max(90 - (segundos / 20), 30); // Progressão mais lenta
+        // Calcula intervalo baseado no tempo real (segundos)
+        float intervaloSpawn = CalcularIntervaloSpawn(_tempoJogoSegundos);
         
-        // Verifica se é hora de spawnar
-        if (_frameCount - _ultimoSpawnAsteroide >= intervaloSpawn)
+        // Verifica se é hora de spawnar baseado no tempo real
+        if (_tempoJogoSegundos - _ultimoSpawnAsteroide >= intervaloSpawn)
         {
             // Calcula quantos asteroides spawnar baseado no tempo
-            int quantidadeAsteroides = CalcularQuantidadeAsteroides(segundos);
+            int quantidadeAsteroides = CalcularQuantidadeAsteroides((int)_tempoJogoSegundos);
             
             for (int i = 0; i < quantidadeAsteroides; i++)
             {
                 SpawnarAsteroide();
             }
             
-            _ultimoSpawnAsteroide = _frameCount;
+            _ultimoSpawnAsteroide = _tempoJogoSegundos;
         }
+    }
+
+    /// <summary>
+    /// Calcula o intervalo entre spawns baseado no tempo de jogo
+    /// </summary>
+    private float CalcularIntervaloSpawn(float tempoSegundos)
+    {
+        // Intervalo em segundos: começa em 2.0s e diminui gradualmente até 0.5s
+        float intervaloBase = 2.0f;
+        float reducao = tempoSegundos / 30f; // Reduz 1 segundo a cada 30 segundos
+        return Math.Max(0.5f, intervaloBase - reducao);
     }
     
     /// <summary>
@@ -345,10 +357,9 @@ public class EstadoJogo
     {
         float x = _random.Next(LarguraTela);
         
-        // Velocidade varia baseada no tempo de jogo - progressão mais lenta
-        int segundos = _frameCount / 60;
-        float velYBase = 1.5f + (segundos * 0.01f); // Aumenta mais gradualmente
-        float velY = velYBase + (float)_random.NextDouble() * 1.5f; // Variação menor
+        // Velocidade baseada no tempo real (pixels por segundo)
+        float velYBase = 100f + (_tempoJogoSegundos * 2f); // Aumenta 2 pixels/segundo a cada segundo
+        float velY = velYBase + (float)_random.NextDouble() * 50f; // Variação de até 50 pixels/segundo
         
         // Tamanho varia um pouco
         float raio = 20 + (float)_random.NextDouble() * 10; // 20-30 pixels
@@ -356,7 +367,7 @@ public class EstadoJogo
         var asteroide = new Asteroide(
             _proximoIdAsteroide++,
             new Vector2(x, -30),
-            new Vector2(0, velY),
+            new Vector2(0, velY), // Velocidade em pixels por segundo
             raio,
             _random.Next(0, 3) // Tipo de textura (0 a 2)
         );

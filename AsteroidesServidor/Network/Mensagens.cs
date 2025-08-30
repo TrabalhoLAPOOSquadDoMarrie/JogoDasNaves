@@ -181,6 +181,10 @@ public class MensagemGameOver : MensagemBase
 /// </summary>
 public class MensagemReiniciarJogo : MensagemBase
 {
+    public int VotosAtuais { get; set; } = 0;
+    public int VotosNecessarios { get; set; } = 0;
+    public int JogadorVotou { get; set; } = 0;
+    
     public MensagemReiniciarJogo()
     {
         Tipo = TipoMensagem.ReiniciarJogo;
