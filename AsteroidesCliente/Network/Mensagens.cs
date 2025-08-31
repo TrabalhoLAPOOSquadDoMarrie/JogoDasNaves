@@ -17,13 +17,17 @@ public enum TipoMensagem
     ReiniciarJogo,
     PausarJogo,
     Personalizacao,
+    Heartbeat,
+    VoltarAoJogo,
     
     // Servidor para Cliente
     EstadoJogo,
     JogadorConectado,
     JogadorDesconectado,
     GameOver,
-    ErroConexao
+    ErroConexao,
+    HeartbeatResponse,
+    ConfirmacaoConexao
 }
 
 /// <summary>
@@ -201,5 +205,57 @@ public class MensagemPausarJogo : MensagemBase
     public MensagemPausarJogo()
     {
         Tipo = TipoMensagem.PausarJogo;
+    }
+}
+
+/// <summary>
+/// Mensagem de heartbeat para manter conexão viva
+/// </summary>
+public class MensagemHeartbeat : MensagemBase
+{
+    public int JogadorId { get; set; }
+    
+    public MensagemHeartbeat()
+    {
+        Tipo = TipoMensagem.Heartbeat;
+    }
+}
+
+/// <summary>
+/// Resposta ao heartbeat do servidor
+/// </summary>
+public class MensagemHeartbeatResponse : MensagemBase
+{
+    public MensagemHeartbeatResponse()
+    {
+        Tipo = TipoMensagem.HeartbeatResponse;
+    }
+}
+
+/// <summary>
+/// Confirmação de conexão com ID do jogador (enviada apenas para o cliente que conectou)
+/// </summary>
+public class MensagemConfirmacaoConexao : MensagemBase
+{
+    public int JogadorId { get; set; }
+    public string NomeJogador { get; set; } = "";
+    
+    public MensagemConfirmacaoConexao()
+    {
+        Tipo = TipoMensagem.ConfirmacaoConexao;
+    }
+}
+
+/// <summary>
+/// Mensagem para voltar ao jogo (reconexão de jogador existente)
+/// </summary>
+public class MensagemVoltarAoJogo : MensagemBase
+{
+    public int JogadorId { get; set; }
+    public string NomeJogador { get; set; } = "";
+    
+    public MensagemVoltarAoJogo()
+    {
+        Tipo = TipoMensagem.VoltarAoJogo;
     }
 }

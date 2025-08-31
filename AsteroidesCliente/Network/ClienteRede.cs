@@ -15,6 +15,8 @@ public class ClienteRede
     private NetworkStream? _stream;
     private bool _conectado = false;
     private readonly object _lock = new();
+    private DateTime _ultimoHeartbeat = DateTime.UtcNow;
+    private int _jogadorId = 0;
 
     public bool Conectado 
     { 
@@ -26,6 +28,8 @@ public class ClienteRede
             } 
         } 
     }
+
+    public int JogadorId => _jogadorId;
 
     public event Action<MensagemBase>? MensagemRecebida;
     public event Action? Desconectado;
@@ -48,6 +52,9 @@ public class ClienteRede
 
             // Inicia a tarefa de recepção de mensagens
             _ = Task.Run(ReceberMensagensAsync);
+            
+            // Inicia sistema de heartbeat
+            _ = Task.Run(HeartbeatLoopAsync);
 
             Console.WriteLine($"Conectado ao servidor {endereco}:{porta}");
             return true;
@@ -70,17 +77,26 @@ public class ClienteRede
         {
             if (!Conectado || _stream == null) return false;
 
+            // Configura timeout para evitar travamentos
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
             string json = JsonConvert.SerializeObject(mensagem);
 
             byte[] dados = Encoding.UTF8.GetBytes(json);
             byte[] tamanho = BitConverter.GetBytes(dados.Length);
 
             // Envia o tamanho da mensagem primeiro, depois a mensagem
-            await _stream.WriteAsync(tamanho, 0, 4);
-            await _stream.WriteAsync(dados, 0, dados.Length);
-            await _stream.FlushAsync();
+            await _stream.WriteAsync(tamanho, 0, 4, cts.Token);
+            await _stream.WriteAsync(dados, 0, dados.Length, cts.Token);
+            await _stream.FlushAsync(cts.Token);
 
             return true;
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("Timeout ao enviar mensagem para o servidor");
+            Desconectar();
+            return false;
         }
         catch (Exception ex)
         {
@@ -99,13 +115,23 @@ public class ClienteRede
         {
             while (Conectado && _stream != null)
             {
+                // Configura timeout para evitar travamentos
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
                 // Lê o tamanho da mensagem primeiro
                 byte[] bufferTamanho = new byte[4];
-                int bytesLidos = await _stream.ReadAsync(bufferTamanho, 0, 4);
+                int bytesLidos = await _stream.ReadAsync(bufferTamanho, 0, 4, cts.Token);
                 
                 if (bytesLidos != 4) break;
                 
                 int tamanhoMensagem = BitConverter.ToInt32(bufferTamanho, 0);
+                
+                // Validação de segurança
+                if (tamanhoMensagem > 1024 * 1024) // 1MB máximo
+                {
+                    Console.WriteLine($"Mensagem muito grande ({tamanhoMensagem} bytes), desconectando");
+                    break;
+                }
                 
                 // Lê a mensagem completa
                 byte[] bufferMensagem = new byte[tamanhoMensagem];
@@ -113,7 +139,7 @@ public class ClienteRede
                 
                 while (totalLido < tamanhoMensagem)
                 {
-                    int lido = await _stream.ReadAsync(bufferMensagem, totalLido, tamanhoMensagem - totalLido);
+                    int lido = await _stream.ReadAsync(bufferMensagem, totalLido, tamanhoMensagem - totalLido, cts.Token);
                     if (lido == 0) break;
                     totalLido += lido;
                 }
@@ -137,14 +163,33 @@ public class ClienteRede
                     TipoMensagem.GameOver => JsonConvert.DeserializeObject<MensagemGameOver>(json),
                     TipoMensagem.PausarJogo => JsonConvert.DeserializeObject<MensagemPausarJogo>(json),
                     TipoMensagem.ReiniciarJogo => JsonConvert.DeserializeObject<MensagemReiniciarJogo>(json),
+                    TipoMensagem.HeartbeatResponse => JsonConvert.DeserializeObject<MensagemHeartbeatResponse>(json),
+                    TipoMensagem.ConfirmacaoConexao => JsonConvert.DeserializeObject<MensagemConfirmacaoConexao>(json),
                     _ => null
                 };
                 
                 if (mensagem != null)
                 {
+                    // Atualiza timestamp do heartbeat se for resposta
+                    if (tipo == TipoMensagem.HeartbeatResponse)
+                    {
+                        _ultimoHeartbeat = DateTime.UtcNow;
+                    }
+                    
+                    // Define ID do jogador imediatamente ao receber confirmação
+                    if (tipo == TipoMensagem.ConfirmacaoConexao && mensagem is MensagemConfirmacaoConexao confirmacao)
+                    {
+                        _jogadorId = confirmacao.JogadorId;
+                        Console.WriteLine($"ID do jogador recebido e definido: {_jogadorId}");
+                    }
+                    
                     MensagemRecebida?.Invoke(mensagem);
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("Timeout ao receber mensagens do servidor");
         }
         catch (Exception ex)
         {
@@ -154,6 +199,50 @@ public class ClienteRede
         {
             Desconectar();
         }
+    }
+
+    /// <summary>
+    /// Loop de heartbeat para manter a conexão viva e detectar desconexões
+    /// </summary>
+    private async Task HeartbeatLoopAsync()
+    {
+        try
+        {
+            while (Conectado)
+            {
+                await Task.Delay(5000); // Envia heartbeat a cada 5 segundos
+                
+                if (!Conectado) break;
+
+                // Verifica se não recebemos resposta há muito tempo
+                if (DateTime.UtcNow - _ultimoHeartbeat > TimeSpan.FromSeconds(15))
+                {
+                    Console.WriteLine("Servidor não respondeu ao heartbeat, desconectando...");
+                    Desconectar();
+                    break;
+                }
+
+                // Envia heartbeat
+                var heartbeat = new MensagemHeartbeat { JogadorId = _jogadorId };
+                if (!await EnviarMensagemAsync(heartbeat))
+                {
+                    Console.WriteLine("Falha ao enviar heartbeat");
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erro no loop de heartbeat: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Define o ID do jogador para heartbeat
+    /// </summary>
+    public void DefinirJogadorId(int jogadorId)
+    {
+        _jogadorId = jogadorId;
     }
 
     /// <summary>

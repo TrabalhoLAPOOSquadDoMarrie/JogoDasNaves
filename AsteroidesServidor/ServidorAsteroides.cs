@@ -72,7 +72,7 @@ public class ServidorAsteroides
             try
             {
                 var tcpClient = await _tcpListener.AcceptTcpClientAsync();
-                var cliente = new ClienteConectado(_proximoIdJogador++, tcpClient);
+                var cliente = new ClienteConectado(Interlocked.Increment(ref _proximoIdJogador), tcpClient);
                 
                 lock (_lockClientes)
                 {
@@ -136,16 +136,25 @@ public class ServidorAsteroides
                 case TipoMensagem.ConectarJogador:
                     var msgConectar = (MensagemConectarJogador)mensagem;
                     cliente.Nome = msgConectar.NomeJogador;
+                    
+                    // PRIMEIRO: Envia confirmação de conexão IMEDIATA com ID para o cliente específico
+                    await cliente.EnviarMensagemAsync(new MensagemConfirmacaoConexao
+                    {
+                        JogadorId = cliente.Id,
+                        NomeJogador = cliente.Nome
+                    });
+                    
+                    // SEGUNDO: Adiciona nave ao jogo
                     _estadoJogo.AdicionarNave(cliente.Id);
                     
-                    // Notifica todos os clientes sobre o novo jogador
+                    // TERCEIRO: Notifica todos os outros clientes sobre o novo jogador
                     await BroadcastMensagemAsync(new MensagemJogadorConectado
                     {
                         JogadorId = cliente.Id,
                         NomeJogador = cliente.Nome
                     });
                     
-                    Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) entrou no jogo");
+                    Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) conectado e ID confirmado");
                     break;
                 
                 case TipoMensagem.PausarJogo:
@@ -215,7 +224,11 @@ public class ServidorAsteroides
                     
                     lock (_lockClientes)
                     {
-                        totalJogadores = _clientes.Values.Where(c => c.Conectado).Count();
+                        // Limpa votos órfãos de jogadores desconectados
+                        var jogadoresConectados = _clientes.Values.Where(c => c.Conectado).Select(c => c.Id).ToHashSet();
+                        _votosReinicio.IntersectWith(jogadoresConectados);
+                        
+                        totalJogadores = jogadoresConectados.Count;
                         
                         // Se há apenas um jogador, permite reinício imediato
                         if (totalJogadores == 1)
@@ -282,6 +295,26 @@ public class ServidorAsteroides
 
                 case TipoMensagem.DesconectarJogador:
                     cliente.Desconectar();
+                    break;
+
+                case TipoMensagem.Heartbeat:
+                    // Responde ao heartbeat do cliente
+                    await cliente.EnviarMensagemAsync(new MensagemHeartbeatResponse());
+                    break;
+
+                case TipoMensagem.VoltarAoJogo:
+                    var msgVoltarJogo = (MensagemVoltarAoJogo)mensagem;
+                    Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) voltou ao jogo (reutilizando conexão)");
+                    
+                    // Reativa nave existente ou cria nova, preservando personalização
+                    _estadoJogo.ReativarOuCriarNave(cliente.Id);
+                    
+                    // Envia confirmação de que voltou ao jogo
+                    await cliente.EnviarMensagemAsync(new MensagemJogadorConectado
+                    {
+                        JogadorId = cliente.Id,
+                        NomeJogador = cliente.Nome
+                    });
                     break;
             }
         }
@@ -415,24 +448,23 @@ public class ServidorAsteroides
             clientes = _clientes.Values.Where(c => c.Conectado).ToList();
         }
 
-        // Usa Parallel.ForEach para enviar mensagens em paralelo
-        // Justificativa: Enviar mensagens para múltiplos clientes pode ser lento
-        // se feito sequencialmente. O paralelismo permite enviar para todos
-        // os clientes simultaneamente, reduzindo a latência percebida.
-        await Task.Run(() =>
+        // Corrigido: Usa Task.WhenAll em vez de Parallel.ForEach para operações assíncronas
+        // Isso evita deadlocks e garante que todas as operações sejam aguardadas corretamente
+        var tarefasEnvio = clientes.Select(async cliente =>
         {
-            Parallel.ForEach(clientes, async cliente =>
+            try
             {
-                try
-                {
-                    await cliente.EnviarMensagemAsync(mensagem);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Erro ao enviar broadcast para cliente {cliente.Id}: {ex.Message}");
-                }
-            });
+                await cliente.EnviarMensagemAsync(mensagem);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro ao enviar broadcast para cliente {cliente.Id}: {ex.Message}");
+                // Remove cliente com falha de forma assíncrona
+                _ = Task.Run(() => DesconectarClienteAsync(cliente));
+            }
         });
+
+        await Task.WhenAll(tarefasEnvio);
     }
 
     /// <summary>

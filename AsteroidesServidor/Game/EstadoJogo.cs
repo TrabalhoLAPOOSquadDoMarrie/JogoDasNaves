@@ -170,29 +170,30 @@ public class EstadoJogo
     /// </summary>
     public void AtualizarJogo(float deltaTime)
     {
+        // Verifica se o jogo pode ser atualizado sem lock
+        bool jogoAtivo;
+        bool simulacaoPausada;
+        
         lock (_lock)
         {
-            // Se o jogo não está ativo, não executa a lógica de atualização
-            if (!JogoAtivo)
+            jogoAtivo = JogoAtivo;
+            simulacaoPausada = SimulacaoPausada;
+            
+            if (!jogoAtivo || simulacaoPausada)
                 return;
-            if (SimulacaoPausada) return;
 
             _frameCount++;
-            _tempoJogoSegundos += deltaTime; // Acumula tempo real
+            _tempoJogoSegundos += deltaTime;
+        }
 
-            // Atualiza tiros
-            AtualizarTiros(deltaTime);
+        // Atualiza componentes com locks mais granulares
+        AtualizarTirosComLockGranular(deltaTime);
+        AtualizarAsteroidesComLockGranular(deltaTime);
+        VerificarColisoesComLockGranular();
 
-            // Atualiza asteroides
-            AtualizarAsteroides(deltaTime);
-
-            // Verifica colisões usando paralelismo
-            VerificarColisoes();
-
-            // Spawna novos asteroides com base no tempo real, não em frames
+        lock (_lock)
+        {
             SpawnarAsteroidesComDificuldade(deltaTime);
-
-            // Verifica condição de game over
             VerificarGameOver();
         }
     }
@@ -242,20 +243,102 @@ public class EstadoJogo
     }
 
     /// <summary>
-    /// Verifica colisões usando programação paralela (PLINQ)
-    /// Esta é a tarefa computacionalmente pesada otimizada com paralelismo
+    /// Atualiza todos os tiros com lock granular para reduzir contention
     /// </summary>
-    private void VerificarColisoes()
+    private void AtualizarTirosComLockGranular(float deltaTime)
     {
+        var tirosParaRemover = new List<int>();
+        
+        // Cria uma cópia para iteração sem lock prolongado
+        Dictionary<int, Tiro> tirosCopia;
+        lock (_lock)
+        {
+            tirosCopia = new Dictionary<int, Tiro>(_tiros);
+        }
+
+        // Atualiza tiros sem lock
+        foreach (var tiro in tirosCopia.Values)
+        {
+            tiro.Atualizar(deltaTime);
+            if (tiro.ForaDaTela(AlturaTela))
+            {
+                tirosParaRemover.Add(tiro.Id);
+            }
+        }
+
+        // Remove tiros fora da tela com lock mínimo
+        if (tirosParaRemover.Count > 0)
+        {
+            lock (_lock)
+            {
+                foreach (var id in tirosParaRemover)
+                {
+                    _tiros.Remove(id);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Atualiza todos os asteroides com lock granular para reduzir contention
+    /// </summary>
+    private void AtualizarAsteroidesComLockGranular(float deltaTime)
+    {
+        var asteroidesParaRemover = new List<int>();
+        
+        // Cria uma cópia para iteração sem lock prolongado
+        Dictionary<int, Asteroide> asteroidesCopia;
+        lock (_lock)
+        {
+            asteroidesCopia = new Dictionary<int, Asteroide>(_asteroides);
+        }
+
+        // Atualiza asteroides sem lock
+        foreach (var asteroide in asteroidesCopia.Values)
+        {
+            asteroide.Atualizar(deltaTime);
+            if (asteroide.ForaDaTela(AlturaTela))
+            {
+                asteroidesParaRemover.Add(asteroide.Id);
+            }
+        }
+
+        // Remove asteroides fora da tela com lock mínimo
+        if (asteroidesParaRemover.Count > 0)
+        {
+            lock (_lock)
+            {
+                foreach (var id in asteroidesParaRemover)
+                {
+                    _asteroides.Remove(id);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifica colisões com lock granular usando snapshots thread-safe
+    /// </summary>
+    private void VerificarColisoesComLockGranular()
+    {
+        // Cria snapshots das coleções para evitar modificação durante PLINQ
+        Dictionary<int, Tiro> snapshotTiros;
+        Dictionary<int, Asteroide> snapshotAsteroides;
+        Dictionary<int, Nave> snapshotNaves;
+
+        lock (_lock)
+        {
+            snapshotTiros = new Dictionary<int, Tiro>(_tiros);
+            snapshotAsteroides = new Dictionary<int, Asteroide>(_asteroides);
+            snapshotNaves = new Dictionary<int, Nave>(_naves);
+        }
+
         var asteroidesParaRemover = new List<int>();
         var tirosParaRemover = new List<int>();
 
-        // Usa PLINQ para verificar colisões tiro × asteroide em paralelo
-        // Justificativa: Com muitos asteroides e tiros, verificar todas as combinações
-        // pode ser custoso. O paralelismo permite distribuir essas verificações
-        // entre múltiplos threads, melhorando significativamente a performance.
-        var colisoesTiroAsteroide = _asteroides.Values.AsParallel()
-            .SelectMany(asteroide => _tiros.Values.AsParallel()
+        // Usa PLINQ seguro com snapshots
+        var colisoesTiroAsteroide = snapshotAsteroides.Values.AsParallel()
+            .SelectMany(asteroide => snapshotTiros.Values.AsParallel()
                 .Where(tiro => asteroide.Colide(tiro))
                 .Select(tiro => new { Asteroide = asteroide, Tiro = tiro }))
             .ToList();
@@ -268,37 +351,53 @@ public class EstadoJogo
             {
                 asteroidesParaRemover.Add(colisao.Asteroide.Id);
                 tirosParaRemover.Add(colisao.Tiro.Id);
+            }
+        }
 
-                // Adiciona pontos ao jogador
+        // Verifica colisões nave × asteroide
+        var navesParaMatar = new List<int>();
+        foreach (var nave in snapshotNaves.Values.Where(n => n.Viva))
+        {
+            foreach (var asteroide in snapshotAsteroides.Values)
+            {
+                if (asteroide.Colide(nave))
+                {
+                    navesParaMatar.Add(nave.JogadorId);
+                    break;
+                }
+            }
+        }
+
+        // Aplica resultados com lock mínimo
+        lock (_lock)
+        {
+            // Remove tiros e asteroides que colidiram
+            foreach (var id in tirosParaRemover)
+            {
+                _tiros.Remove(id);
+            }
+            
+            foreach (var id in asteroidesParaRemover)
+            {
+                _asteroides.Remove(id);
+            }
+
+            // Adiciona pontos e mata naves
+            foreach (var colisao in colisoesTiroAsteroide)
+            {
                 if (_naves.TryGetValue(colisao.Tiro.JogadorId, out var nave))
                 {
                     nave.AdicionarPontos(10);
                 }
             }
-        }
 
-        // Verifica colisões nave × asteroide
-        foreach (var nave in _naves.Values.Where(n => n.Viva))
-        {
-            foreach (var asteroide in _asteroides.Values)
+            foreach (var jogadorId in navesParaMatar)
             {
-                if (asteroide.Colide(nave))
+                if (_naves.TryGetValue(jogadorId, out var nave))
                 {
                     nave.Morrer();
-                    Console.WriteLine($"Jogador {nave.JogadorId} foi atingido por um asteroide!");
                 }
             }
-        }
-
-        // Remove objetos que colidiram
-        foreach (var id in asteroidesParaRemover)
-        {
-            _asteroides.Remove(id);
-        }
-
-        foreach (var id in tirosParaRemover)
-        {
-            _tiros.Remove(id);
         }
     }
 
@@ -453,6 +552,39 @@ public class EstadoJogo
             }
 
             Console.WriteLine("Jogo reiniciado!");
+        }
+    }
+
+    /// <summary>
+    /// Reativa uma nave existente ou cria uma nova se necessário
+    /// Preserva personalização e pontuação
+    /// </summary>
+    public void ReativarOuCriarNave(int jogadorId)
+    {
+        lock (_lock)
+        {
+            if (_naves.TryGetValue(jogadorId, out var naveExistente))
+            {
+                // Nave já existe - apenas reativa se estiver morta
+                if (!naveExistente.Viva)
+                {
+                    Vector2 posicaoInicial = new Vector2(LarguraTela / 2f + (jogadorId * 50), AlturaTela - 100);
+                    naveExistente.Posicao = posicaoInicial;
+                    naveExistente.Viva = true;
+                    naveExistente.Rotacao = 0f;
+                    
+                    Console.WriteLine($"Nave reativada para jogador {jogadorId} (pontuação preservada: {naveExistente.Pontuacao}, modelo: {naveExistente.ModeloNave})");
+                }
+                else
+                {
+                    Console.WriteLine($"Nave do jogador {jogadorId} já estava ativa");
+                }
+            }
+            else
+            {
+                // Nave não existe - cria nova
+                AdicionarNave(jogadorId);
+            }
         }
     }
 }

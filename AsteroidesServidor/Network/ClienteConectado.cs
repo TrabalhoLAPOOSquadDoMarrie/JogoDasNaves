@@ -25,7 +25,7 @@ public class ClienteConectado
     }
 
     /// <summary>
-    /// Envia uma mensagem para o cliente de forma assíncrona
+    /// Envia uma mensagem para o cliente de forma assíncrona com timeout
     /// </summary>
     public async Task EnviarMensagemAsync(MensagemBase mensagem)
     {
@@ -33,17 +33,25 @@ public class ClienteConectado
         {
             if (!Conectado || !TcpClient.Connected) return;
 
+            // Configura timeout para evitar travamentos
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
             string json = JsonConvert.SerializeObject(mensagem);
             
             byte[] dados = Encoding.UTF8.GetBytes(json);
             byte[] tamanho = BitConverter.GetBytes(dados.Length);
             
             // Envia o tamanho da mensagem primeiro, depois a mensagem
-            await Stream.WriteAsync(tamanho, 0, 4);
-            await Stream.WriteAsync(dados, 0, dados.Length);
-            await Stream.FlushAsync();
+            await Stream.WriteAsync(tamanho, 0, 4, cts.Token);
+            await Stream.WriteAsync(dados, 0, dados.Length, cts.Token);
+            await Stream.FlushAsync(cts.Token);
             
             UltimaAtividade = DateTime.UtcNow;
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine($"Timeout ao enviar mensagem para cliente {Id}");
+            Desconectar();
         }
         catch (Exception ex)
         {
@@ -53,7 +61,7 @@ public class ClienteConectado
     }
 
     /// <summary>
-    /// Recebe uma mensagem do cliente de forma assíncrona
+    /// Recebe uma mensagem do cliente de forma assíncrona com timeout
     /// </summary>
     public async Task<MensagemBase?> ReceberMensagemAsync()
     {
@@ -61,13 +69,23 @@ public class ClienteConectado
         {
             if (!Conectado || !TcpClient.Connected) return null;
 
+            // Configura timeout para evitar travamentos
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
             // Lê o tamanho da mensagem primeiro
             byte[] bufferTamanho = new byte[4];
-            int bytesLidos = await Stream.ReadAsync(bufferTamanho, 0, 4);
+            int bytesLidos = await Stream.ReadAsync(bufferTamanho, 0, 4, cts.Token);
             
             if (bytesLidos != 4) return null;
             
             int tamanhoMensagem = BitConverter.ToInt32(bufferTamanho, 0);
+            
+            // Validação de segurança: mensagens muito grandes são suspeitas
+            if (tamanhoMensagem > 1024 * 1024) // 1MB máximo
+            {
+                Console.WriteLine($"Cliente {Id}: Mensagem muito grande ({tamanhoMensagem} bytes), desconectando");
+                return null;
+            }
             
             // Lê a mensagem completa
             byte[] bufferMensagem = new byte[tamanhoMensagem];
@@ -75,7 +93,7 @@ public class ClienteConectado
             
             while (totalLido < tamanhoMensagem)
             {
-                int lido = await Stream.ReadAsync(bufferMensagem, totalLido, tamanhoMensagem - totalLido);
+                int lido = await Stream.ReadAsync(bufferMensagem, totalLido, tamanhoMensagem - totalLido, cts.Token);
                 if (lido == 0) return null;
                 totalLido += lido;
             }
@@ -98,6 +116,8 @@ public class ClienteConectado
                 TipoMensagem.Personalizacao => JsonConvert.DeserializeObject<MensagemPersonalizacao>(json), 
                 TipoMensagem.ReiniciarJogo => JsonConvert.DeserializeObject<MensagemReiniciarJogo>(json), 
                 TipoMensagem.DesconectarJogador => JsonConvert.DeserializeObject<MensagemBase>(json),
+                TipoMensagem.Heartbeat => JsonConvert.DeserializeObject<MensagemHeartbeat>(json),
+                TipoMensagem.VoltarAoJogo => JsonConvert.DeserializeObject<MensagemVoltarAoJogo>(json),
                 _ => null
             };
             

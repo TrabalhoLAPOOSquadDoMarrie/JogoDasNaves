@@ -242,6 +242,24 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
         {
             if (_menuPrincipal == null) return;
 
+            // CORREÇÃO: Verifica se já temos uma conexão ativa
+            if (_clienteRede != null && _clienteRede.Conectado)
+            {
+                Console.WriteLine($"Reutilizando conexão existente (ID: {_clienteRede.JogadorId})");
+                
+                // Envia mensagem de VOLTA AO JOGO (não cria nova nave)
+                await _clienteRede.EnviarMensagemAsync(new MensagemVoltarAoJogo
+                {
+                    JogadorId = _clienteRede.JogadorId,
+                    NomeJogador = _menuPrincipal.NomeJogador
+                });
+
+                _menuPrincipal.DefinirEstado(MenuPrincipal.EstadoMenu.Conectado);
+                _clienteRede.MensagemRecebida += OnMensagemRecebida;
+                return;
+            }
+
+            // Se não há conexão, cria uma nova
             _clienteRede = new ClienteRede();
             _clienteRede.Desconectado += OnDesconectado;
 
@@ -279,6 +297,25 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
 
     private void OnMensagemRecebida(MensagemBase mensagem)
     {
+        // Captura o ID do jogador IMEDIATAMENTE ao receber confirmação de conexão
+        if (mensagem is MensagemConfirmacaoConexao confirmacao && _clienteRede != null)
+        {
+            _clienteRede.DefinirJogadorId(confirmacao.JogadorId);
+            Console.WriteLine($"ID do jogador definido IMEDIATAMENTE: {confirmacao.JogadorId}");
+            return; // Não passa para TelaJogo ainda
+        }
+
+        // Também captura via JogadorConectado (fallback)
+        if (mensagem is MensagemJogadorConectado msgConectado && _clienteRede != null)
+        {
+            // Só define se ainda não foi definido (evita sobrescrever)
+            if (_clienteRede.JogadorId == 0)
+            {
+                _clienteRede.DefinirJogadorId(msgConectado.JogadorId);
+                Console.WriteLine($"ID do jogador definido via fallback: {msgConectado.JogadorId}");
+            }
+        }
+
         if (mensagem is MensagemEstadoJogo)
         {
             if (_clienteRede != null) _clienteRede.MensagemRecebida -= OnMensagemRecebida;
