@@ -73,7 +73,7 @@ public class ServidorAsteroides
             {
                 var tcpClient = await _tcpListener.AcceptTcpClientAsync();
                 var cliente = new ClienteConectado(Interlocked.Increment(ref _proximoIdJogador), tcpClient);
-                
+
                 lock (_lockClientes)
                 {
                     _clientes[cliente.Id] = cliente;
@@ -127,203 +127,210 @@ public class ServidorAsteroides
     /// <summary>
     /// Processa mensagens recebidas dos clientes
     /// </summary>
-    private async Task ProcessarMensagemAsync(ClienteConectado cliente, MensagemBase mensagem)
+   private async Task ProcessarMensagemAsync(ClienteConectado cliente, MensagemBase mensagem)
+{
+    try
     {
-        try
+        switch (mensagem.Tipo)
         {
-            switch (mensagem.Tipo)
-            {
-                case TipoMensagem.ConectarJogador:
-                    var msgConectar = (MensagemConectarJogador)mensagem;
-                    cliente.Nome = msgConectar.NomeJogador;
-                    
-                    // PRIMEIRO: Envia confirmação de conexão IMEDIATA com ID para o cliente específico
-                    await cliente.EnviarMensagemAsync(new MensagemConfirmacaoConexao
+            case TipoMensagem.ConectarJogador:
+                var msgConectar = (MensagemConectarJogador)mensagem;
+                ClienteConectado? jogadorExistente;
+                lock (_lockClientes)
+                {
+                    // Procura por um jogador já conectado com o mesmo nome, que não seja este cliente
+                    jogadorExistente = _clientes.Values.FirstOrDefault(c => c.Nome == msgConectar.NomeJogador && c.Id != cliente.Id);
+                }
+
+                if (jogadorExistente != null)
+                {
+                    Console.WriteLine($"Conexao do jogador '{msgConectar.NomeJogador}' rejeitada. Nome em uso por cliente {jogadorExistente.Id}");
+                    // Envia erro para o cliente que tentou se conectar com nome duplicado
+                    await cliente.EnviarMensagemAsync(new MensagemErroConexao
                     {
-                        JogadorId = cliente.Id,
-                        NomeJogador = cliente.Nome
+                        MensagemErro = "O nome de jogador ja esta em uso. Por favor, escolha outro."
                     });
-                    
-                    // SEGUNDO: Adiciona nave ao jogo
-                    _estadoJogo.AdicionarNave(cliente.Id);
-                    
-                    // TERCEIRO: Notifica todos os outros clientes sobre o novo jogador
-                    await BroadcastMensagemAsync(new MensagemJogadorConectado
-                    {
-                        JogadorId = cliente.Id,
-                        NomeJogador = cliente.Nome
-                    });
-                    
-                    Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) conectado e ID confirmado");
-                    break;
+                    await DesconectarClienteAsync(cliente);
+                    return;
+                }
                 
-                case TipoMensagem.PausarJogo:
-                    var msgPause = (MensagemPausarJogo)mensagem;
-                    if (msgPause.Pausado)
+                cliente.Nome = msgConectar.NomeJogador;
+
+                // Confirmação de conexão para o cliente específico
+                await cliente.EnviarMensagemAsync(new MensagemConfirmacaoConexao
+                {
+                    JogadorId = cliente.Id,
+                    NomeJogador = cliente.Nome
+                });
+                
+                // Adiciona nave ao jogo
+                _estadoJogo.AdicionarNave(cliente.Id);
+                
+                // Notifica todos os outros clientes
+                await BroadcastMensagemAsync(new MensagemJogadorConectado
+                {
+                    JogadorId = cliente.Id,
+                    NomeJogador = cliente.Nome
+                });
+                
+                Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) conectado e ID confirmado");
+                break;
+            
+            case TipoMensagem.PausarJogo:
+                var msgPause = (MensagemPausarJogo)mensagem;
+                if (msgPause.Pausado)
+                {
+                    // Inicia pausa global para todos conectados
+                    List<int> ids;
+                    lock (_lockClientes)
                     {
-                        // Inicia pausa global para todos conectados
-                        List<int> ids;
-                        lock (_lockClientes)
+                        ids = _clientes.Values.Where(c => c.Conectado).Select(c => c.Id).ToList();
+                    }
+                    _estadoJogo.IniciarPausaGlobal(ids);
+                    await BroadcastMensagemAsync(new MensagemPausarJogo
+                    {
+                        Pausado = true,
+                        PausadosRestantes = _estadoJogo.PausadosRestantes,
+                        JogadorId = cliente.Id
+                    });
+                    Console.WriteLine($"Pausa global solicitada por '{cliente.Nome}' (ID: {cliente.Id}). Restantes: {_estadoJogo.PausadosRestantes}");
+                }
+                else
+                {
+                    // Jogador confirma retorno
+                    _estadoJogo.ConfirmarRetorno(cliente.Id);
+                    await BroadcastMensagemAsync(new MensagemPausarJogo
+                    {
+                        Pausado = _estadoJogo.SimulacaoPausada,
+                        PausadosRestantes = _estadoJogo.PausadosRestantes,
+                        JogadorId = cliente.Id
+                    });
+                    Console.WriteLine($"Retorno confirmado por '{cliente.Nome}' (ID: {cliente.Id}). Restantes: {_estadoJogo.PausadosRestantes}");
+                }
+                break;
+            
+            case TipoMensagem.MovimentoJogador:
+                var msgMovimento = (MensagemMovimentoJogador)mensagem;
+                _estadoJogo.AtualizarMovimentoNave(
+                    msgMovimento.JogadorId,
+                    msgMovimento.Esquerda,
+                    msgMovimento.Direita,
+                    msgMovimento.Cima,
+                    msgMovimento.Baixo,
+                    (float)(TickInterval / 1000.0) // deltaTime em segundos
+                );
+                break;
+
+            case TipoMensagem.AtirarTiro:
+                var msgTiro = (MensagemAtirarTiro)mensagem;
+                _estadoJogo.AdicionarTiro(msgTiro.JogadorId);
+                break;
+
+            case TipoMensagem.Personalizacao:
+                var msgPersonalizacao = (MensagemPersonalizacao)mensagem;
+                var navePersonalizada = _estadoJogo.ObterNave(msgPersonalizacao.JogadorId);
+                if (navePersonalizada != null)
+                {
+                    navePersonalizada.ModeloNave = msgPersonalizacao.ModeloNave;
+                }
+                break;
+                    
+            case TipoMensagem.ReiniciarJogo:
+                int totalJogadores;
+                int votosAtuais;
+                bool deveReiniciar = false;
+                MensagemBase? mensagemParaBroadcast = null;
+                    
+                lock (_lockClientes)
+                {
+                    var jogadoresConectados = _clientes.Values.Where(c => c.Conectado).Select(c => c.Id).ToHashSet();
+                    _votosReinicio.IntersectWith(jogadoresConectados);
+                        
+                    totalJogadores = jogadoresConectados.Count;
+                        
+                    if (totalJogadores == 1)
+                    {
+                        deveReiniciar = true;
+                        _votosReinicio.Clear();
+                        
+                        Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) reiniciou o jogo (modo single player)");
+                        mensagemParaBroadcast = new MensagemGameOver
                         {
-                            ids = _clientes.Values.Where(c => c.Conectado).Select(c => c.Id).ToList();
-                        }
-                        _estadoJogo.IniciarPausaGlobal(ids);
-                        await BroadcastMensagemAsync(new MensagemPausarJogo
-                        {
-                            Pausado = true,
-                            PausadosRestantes = _estadoJogo.PausadosRestantes,
-                            JogadorId = cliente.Id // NOVO
-                        });
-                        Console.WriteLine($"Pausa global solicitada por '{cliente.Nome}' (ID: {cliente.Id}). Restantes: {_estadoJogo.PausadosRestantes}");
+                            Motivo = "Jogo foi reiniciado!",
+                            PontuacaoFinal = new List<DadosNave>()
+                        };
                     }
                     else
                     {
-                        // Jogador confirma retorno
-                        _estadoJogo.ConfirmarRetorno(cliente.Id);
-                        await BroadcastMensagemAsync(new MensagemPausarJogo
+                        if (!_votosReinicio.Contains(cliente.Id))
                         {
-                            Pausado = _estadoJogo.SimulacaoPausada,
-                            PausadosRestantes = _estadoJogo.PausadosRestantes,
-                            JogadorId = cliente.Id // NOVO
-                        });
-                        Console.WriteLine($"Retorno confirmado por '{cliente.Nome}' (ID: {cliente.Id}). Restantes: {_estadoJogo.PausadosRestantes}");
-                    }
-                    break;
-                
-                case TipoMensagem.MovimentoJogador:
-                    var msgMovimento = (MensagemMovimentoJogador)mensagem;
-                    _estadoJogo.AtualizarMovimentoNave(
-                        msgMovimento.JogadorId,
-                        msgMovimento.Esquerda,
-                        msgMovimento.Direita,
-                        msgMovimento.Cima,
-                        msgMovimento.Baixo,
-                        (float)(TickInterval / 1000.0) // deltaTime em segundos
-                    );
-                    break;
-
-                case TipoMensagem.AtirarTiro:
-                    var msgTiro = (MensagemAtirarTiro)mensagem;
-                    _estadoJogo.AdicionarTiro(msgTiro.JogadorId);
-                    break;
-
-                case TipoMensagem.Personalizacao:
-                    var msgPersonalizacao = (MensagemPersonalizacao)mensagem;
-                    var navePersonalizada = _estadoJogo.ObterNave(msgPersonalizacao.JogadorId);
-                    if (navePersonalizada != null)
-                    {
-                        navePersonalizada.ModeloNave = msgPersonalizacao.ModeloNave;
-                    }
-                    break;
-                    
-                case TipoMensagem.ReiniciarJogo:
-                    int totalJogadores;
-                    int votosAtuais;
-                    bool deveReiniciar = false;
-                    MensagemBase? mensagemParaBroadcast = null;
-                    
-                    lock (_lockClientes)
-                    {
-                        // Limpa votos órfãos de jogadores desconectados
-                        var jogadoresConectados = _clientes.Values.Where(c => c.Conectado).Select(c => c.Id).ToHashSet();
-                        _votosReinicio.IntersectWith(jogadoresConectados);
+                            _votosReinicio.Add(cliente.Id);
+                            Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) votou para reiniciar. Votos: {_votosReinicio.Count}/{totalJogadores}");
+                        }
                         
-                        totalJogadores = jogadoresConectados.Count;
-                        
-                        // Se há apenas um jogador, permite reinício imediato
-                        if (totalJogadores == 1)
+                        votosAtuais = _votosReinicio.Count;
+                            
+                        if (votosAtuais >= totalJogadores && totalJogadores > 0)
                         {
                             deveReiniciar = true;
                             _votosReinicio.Clear();
                             
-                            Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) reiniciou o jogo (modo single player)");
                             mensagemParaBroadcast = new MensagemGameOver
                             {
-                                Motivo = "Jogo foi reiniciado!",
+                                Motivo = $"Jogo reiniciado! Todos os {totalJogadores} jogadores concordaram.",
                                 PontuacaoFinal = new List<DadosNave>()
                             };
                         }
                         else
                         {
-                            // Modo multiplayer: requer votação
-                            if (!_votosReinicio.Contains(cliente.Id))
+                            mensagemParaBroadcast = new MensagemReiniciarJogo
                             {
-                                _votosReinicio.Add(cliente.Id);
-                                Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) votou para reiniciar. Votos: {_votosReinicio.Count}/{totalJogadores}");
-                            }
-                            
-                            votosAtuais = _votosReinicio.Count;
-                            
-                            // Verifica se todos os jogadores conectados votaram
-                            if (votosAtuais >= totalJogadores && totalJogadores > 0)
-                            {
-                                // Todos concordaram - prepara reinício
-                                deveReiniciar = true;
-                                _votosReinicio.Clear();
-                                
-                                mensagemParaBroadcast = new MensagemGameOver
-                                {
-                                    Motivo = $"Jogo reiniciado! Todos os {totalJogadores} jogadores concordaram.",
-                                    PontuacaoFinal = new List<DadosNave>()
-                                };
-                            }
-                            else
-                            {
-                                // Notifica sobre a votação em andamento
-                                mensagemParaBroadcast = new MensagemReiniciarJogo
-                                {
-                                    VotosAtuais = votosAtuais,
-                                    VotosNecessarios = totalJogadores,
-                                    JogadorVotou = cliente.Id
-                                };
-                            }
+                                VotosAtuais = votosAtuais,
+                                VotosNecessarios = totalJogadores,
+                                JogadorVotou = cliente.Id
+                            };
                         }
                     }
+                }
                     
-                    // Executa ações fora do lock
-                    if (deveReiniciar)
-                    {
-                        _estadoJogo.ReiniciarJogo();
-                        Console.WriteLine($"Jogo reiniciado por consenso de {totalJogadores} jogadores");
-                    }
+                if (deveReiniciar)
+                {
+                    _estadoJogo.ReiniciarJogo();
+                    Console.WriteLine($"Jogo reiniciado por consenso de {totalJogadores} jogadores");
+                }
                     
-                    if (mensagemParaBroadcast != null)
-                    {
-                        await BroadcastMensagemAsync(mensagemParaBroadcast);
-                    }
-                    break;
+                if (mensagemParaBroadcast != null)
+                {
+                    await BroadcastMensagemAsync(mensagemParaBroadcast);
+                }
+                break;
 
-                case TipoMensagem.DesconectarJogador:
-                    cliente.Desconectar();
-                    break;
+            case TipoMensagem.DesconectarJogador:
+                cliente.Desconectar();
+                break;
 
-                case TipoMensagem.Heartbeat:
-                    // Responde ao heartbeat do cliente
-                    await cliente.EnviarMensagemAsync(new MensagemHeartbeatResponse());
-                    break;
+            case TipoMensagem.Heartbeat:
+                await cliente.EnviarMensagemAsync(new MensagemHeartbeatResponse());
+                break;
 
-                case TipoMensagem.VoltarAoJogo:
-                    var msgVoltarJogo = (MensagemVoltarAoJogo)mensagem;
-                    Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) voltou ao jogo (reutilizando conexão)");
+            case TipoMensagem.VoltarAoJogo:
+                var msgVoltarJogo = (MensagemVoltarAoJogo)mensagem;
+                Console.WriteLine($"Jogador '{cliente.Nome}' (ID: {cliente.Id}) voltou ao jogo (reutilizando conexão)");
+                _estadoJogo.ReativarOuCriarNave(cliente.Id);
                     
-                    // Reativa nave existente ou cria nova, preservando personalização
-                    _estadoJogo.ReativarOuCriarNave(cliente.Id);
-                    
-                    // Envia confirmação de que voltou ao jogo
-                    await cliente.EnviarMensagemAsync(new MensagemJogadorConectado
-                    {
-                        JogadorId = cliente.Id,
-                        NomeJogador = cliente.Nome
-                    });
-                    break;
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Erro ao processar mensagem do cliente {cliente.Id}: {ex.Message}");
+                await cliente.EnviarMensagemAsync(new MensagemJogadorConectado
+                {
+                    JogadorId = cliente.Id,
+                    NomeJogador = cliente.Nome
+                });
+                break;
         }
     }
-
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Erro ao processar mensagem do cliente {cliente.Id}: {ex.Message}");
+    }
+}
     /// <summary>
     /// Loop principal do jogo que atualiza o estado e envia para os clientes
     /// </summary>
@@ -341,6 +348,16 @@ public class ServidorAsteroides
 
                 if (deltaTime >= TickInterval)
                 {
+                    // Reinicia o jogo se não houver clientes e o jogo não estiver ativo
+                    lock (_lockClientes)
+                    {
+                        if (_clientes.Count == 0 && !_estadoJogo.JogoAtivo)
+                        {
+                            _estadoJogo.ReiniciarJogo();
+                            Console.WriteLine("Jogo reiniciado. Aguardando novos jogadores...");
+                        }
+                    }
+
                     // Atualiza o estado do jogo
                     _estadoJogo.AtualizarJogo((float)(deltaTime / 1000.0)); // deltaTime em segundos
 
@@ -380,7 +397,6 @@ public class ServidorAsteroides
             }
         }
     }
-
     /// <summary>
     /// Monitora clientes inativos e os desconecta
     /// </summary>

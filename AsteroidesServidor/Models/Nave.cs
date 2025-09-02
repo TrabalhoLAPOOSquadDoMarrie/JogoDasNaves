@@ -17,7 +17,7 @@ public class Nave
     public int ModeloNave { get; set; } = 0; // Modelo da nave (0-3)
     
     // Velocidades independentes de framerate (pixels por segundo)
-    private const float VelocidadePorSegundo = 300f; // 300 pixels por segundo
+    private const float VelocidadePorSegundo = 150f; // 300 pixels por segundo
     private const float VelocidadeRotacaoPorSegundo = 3.0f; // 3 radianos por segundo
     private const float HalfW = 10, HalfH = 10;
     private const int PontosParaCrescimento = 200; // A cada 200 pontos a nave cresce

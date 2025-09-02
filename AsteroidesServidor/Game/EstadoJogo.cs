@@ -538,7 +538,8 @@ public class EstadoJogo
             _tiros.Clear();
             _asteroides.Clear();
             _frameCount = 0;
-            _ultimoSpawnAsteroide = 0;
+            _tempoJogoSegundos = 0; // REINICIA O TEMPO DO JOGO
+            _ultimoSpawnAsteroide = 0; // REINICIA O TEMPO DE SPAWN
             _proximoIdTiro = 1;
             _proximoIdAsteroide = 1;
             _gameOverMensagemExibida = false;

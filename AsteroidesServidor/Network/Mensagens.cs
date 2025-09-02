@@ -207,13 +207,26 @@ public class MensagemPausarJogo : MensagemBase
     }
 }
 
+
+/// <summary>
+/// Mensagem de erro de conexão
+/// </summary>
+public class MensagemErroConexao : MensagemBase
+{
+    public string MensagemErro { get; set; } = "";
+    
+    public MensagemErroConexao()
+    {
+        Tipo = TipoMensagem.ErroConexao;
+    }
+}
 /// <summary>
 /// Mensagem de heartbeat para manter conexão viva
 /// </summary>
 public class MensagemHeartbeat : MensagemBase
 {
     public int JogadorId { get; set; }
-    
+
     public MensagemHeartbeat()
     {
         Tipo = TipoMensagem.Heartbeat;

@@ -87,17 +87,17 @@ public class AplicacaoCliente : Microsoft.Xna.Framework.Game
             _personalizacao.Carregar();
 
             PersonalizacaoJogador.TexturasNave = new Texture2D[4];
-            PersonalizacaoJogador.TexturasNave[0] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Nave1.png");
-            PersonalizacaoJogador.TexturasNave[1] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Nave2.png");
-            PersonalizacaoJogador.TexturasNave[2] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Nave3.png");
-            PersonalizacaoJogador.TexturasNave[3] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Nave4.png");
+            PersonalizacaoJogador.TexturasNave[0] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Nave1.png");
+            PersonalizacaoJogador.TexturasNave[1] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Nave2.png");
+            PersonalizacaoJogador.TexturasNave[2] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Nave3.png");
+            PersonalizacaoJogador.TexturasNave[3] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Nave4.png");
             // --- FIM DA CORREÇÃO ---
 
             // Carrega as texturas dos asteroides
             PersonalizacaoJogador.TexturasAsteroide = new Texture2D[3];
-            PersonalizacaoJogador.TexturasAsteroide[0] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Asteroide1.png");
-            PersonalizacaoJogador.TexturasAsteroide[1] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Asteroide2.png");
-            PersonalizacaoJogador.TexturasAsteroide[2] = Texture2D.FromFile(GraphicsDevice, "AsteroidesCliente/Content/Sprites/Asteroide3.png");
+            PersonalizacaoJogador.TexturasAsteroide[0] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Asteroide1.png");
+            PersonalizacaoJogador.TexturasAsteroide[1] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Asteroide2.png");
+            PersonalizacaoJogador.TexturasAsteroide[2] = Texture2D.FromFile(GraphicsDevice, "Content/Sprites/Asteroide3.png");
         
 
             // Criar textura pixel para o menu de personalização

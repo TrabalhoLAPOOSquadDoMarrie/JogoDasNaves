@@ -26,7 +26,19 @@ public class MenuPrincipal
     public EstadoMenu Estado { get; private set; } = EstadoMenu.MenuInicial;
     public string EnderecoServidor { get; private set; } = "localhost";
     public int PortaServidor { get; private set; } = 8890;
-    public string NomeJogador { get; private set; } = "";
+    public string _nomeJogador { get; private set; } = "";
+    public string NomeJogador
+    {
+        get
+        {
+            // Garante que o nome do jogador nunca seja vazio.
+            return string.IsNullOrWhiteSpace(_nomeJogador) ? $"Jogador_{Guid.NewGuid().ToString().Substring(0, 4)}" : _nomeJogador;
+        }
+        private set
+        {
+            _nomeJogador = value;
+        }
+    }
     public NivelDificuldade DificuldadeSelecionada { get; private set; } = NivelDificuldade.Medio;
 
     private int _opcaoSelecionada = 0;

@@ -48,14 +48,19 @@ public class ClienteConectado
             
             UltimaAtividade = DateTime.UtcNow;
         }
+        catch (IOException ex) when (ex.InnerException is SocketException se)
+        {
+            Console.WriteLine($"Erro de socket ao receber mensagem do cliente {Id}: {se.Message}");
+            Desconectar();
+        }
         catch (OperationCanceledException)
         {
-            Console.WriteLine($"Timeout ao enviar mensagem para cliente {Id}");
+            Console.WriteLine($"Timeout ao receber mensagem do cliente {Id}");
             Desconectar();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Erro ao enviar mensagem para cliente {Id}: {ex.Message}");
+            Console.WriteLine($"Erro geral ao receber mensagem do cliente {Id}: {ex.Message}");
             Desconectar();
         }
     }
@@ -124,9 +129,21 @@ public class ClienteConectado
             UltimaAtividade = DateTime.UtcNow;
             return mensagem;
         }
+        catch (IOException ex) when (ex.InnerException is SocketException se)
+        {
+            Console.WriteLine($"Erro de socket ao receber mensagem do cliente {Id}: {se.Message}");
+            Desconectar();
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine($"Timeout ao receber mensagem do cliente {Id}");
+            Desconectar();
+            return null;
+        }
         catch (Exception ex)
         {
-            Console.WriteLine($"Erro ao receber mensagem do cliente {Id}: {ex.Message}");
+            Console.WriteLine($"Erro geral ao receber mensagem do cliente {Id}: {ex.Message}");
             Desconectar();
             return null;
         }
