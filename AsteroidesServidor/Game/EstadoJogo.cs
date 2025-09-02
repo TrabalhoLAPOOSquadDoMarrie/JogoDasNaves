@@ -28,8 +28,8 @@ public class EstadoJogo
     private float _ultimoSpawnAsteroide = 0f; // Último spawn em segundos
     private bool _gameOverMensagemExibida = false;
 
-    public const int LarguraTela = 1200;
-    public const int AlturaTela = 800;
+    public const int LarguraTela = 1280;
+    public const int AlturaTela = 720;
     public bool JogoAtivo { get; private set; } = true;
 
     /// <summary>
@@ -413,7 +413,10 @@ public class EstadoJogo
         if (_tempoJogoSegundos - _ultimoSpawnAsteroide >= intervaloSpawn)
         {
             // Calcula quantos asteroides spawnar baseado no tempo
-            int quantidadeAsteroides = CalcularQuantidadeAsteroides((int)_tempoJogoSegundos);
+            int quantidadeBase = CalcularQuantidadeAsteroides((int)_tempoJogoSegundos);
+            
+            // Aumenta em 1,45x a quantidade (arredonda para cima) e limita a 8 por spawn
+            int quantidadeAsteroides = Math.Clamp((int)Math.Ceiling(quantidadeBase * 1.40f), 1, 8);
             
             for (int i = 0; i < quantidadeAsteroides; i++)
             {
@@ -429,10 +432,10 @@ public class EstadoJogo
     /// </summary>
     private float CalcularIntervaloSpawn(float tempoSegundos)
     {
-        // Intervalo em segundos: começa em 2.0s e diminui gradualmente até 0.5s
-        float intervaloBase = 2.0f;
-        float reducao = tempoSegundos / 30f; // Reduz 1 segundo a cada 30 segundos
-        return Math.Max(0.5f, intervaloBase - reducao);
+        // Intervalo em segundos: começa em 2.5s e diminui gradualmente até 1.0s
+        float intervaloBase = 2.5f;
+        float reducao = tempoSegundos / 60f; // Reduz 1 segundo a cada 60 segundos
+        return Math.Max(1.0f, intervaloBase - reducao);
     }
     
     /// <summary>
@@ -440,13 +443,12 @@ public class EstadoJogo
     /// </summary>
     private int CalcularQuantidadeAsteroides(int segundos)
     {
-        // Progressão mais gradual e lenta da quantidade de asteroides
-        if (segundos < 60) return 1;        // Primeiro minuto: 1 asteroide
-        if (segundos < 120) return 2;       // Segundo minuto: 2 asteroides
-        if (segundos < 240) return 3;       // Terceiro e quarto minutos: 3 asteroides
-        if (segundos < 360) return 4;       // Quinto e sexto minutos: 4 asteroides
-        if (segundos < 480) return 5;       // Sétimo e oitavo minutos: 5 asteroides
-        return Math.Min(6, 3 + (segundos / 120)); // Máximo de 6 asteroides, aumenta a cada 2 minutos
+        // Progressão mais lenta da quantidade de asteroides
+        if (segundos < 90) return 1;         // 0-1.5 min: 1
+        if (segundos < 180) return 2;        // 1.5-3 min: 2
+        if (segundos < 360) return 3;        // 3-6 min: 3
+        if (segundos < 600) return 4;        // 6-10 min: 4
+        return 5;                             // Máximo de 5
     }
 
     /// <summary>
@@ -456,11 +458,11 @@ public class EstadoJogo
     {
         float x = _random.Next(LarguraTela);
         
-        // Velocidade baseada no tempo real (pixels por segundo)
-        float velYBase = 100f + (_tempoJogoSegundos * 2f); // Aumenta 2 pixels/segundo a cada segundo
-        float velY = velYBase + (float)_random.NextDouble() * 50f; // Variação de até 50 pixels/segundo
+        // Velocidade baseada no tempo real (pixels por segundo) - mais lenta
+        float velYBase = 70f + (_tempoJogoSegundos * 1.2f); // Crescimento mais suave
+        float velY = velYBase + (float)_random.NextDouble() * 30f; // Variação menor
         
-        // Tamanho varia um pouco
+        // Tamanho varia um pouco (mantido)
         float raio = 20 + (float)_random.NextDouble() * 10; // 20-30 pixels
         
         var asteroide = new Asteroide(

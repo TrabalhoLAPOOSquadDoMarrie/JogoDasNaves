@@ -17,9 +17,9 @@ public class Nave
     public int ModeloNave { get; set; } = 0; // Modelo da nave (0-3)
     
     // Velocidades independentes de framerate (pixels por segundo)
-    private const float VelocidadePorSegundo = 150f; // 300 pixels por segundo
-    private const float VelocidadeRotacaoPorSegundo = 3.0f; // 3 radianos por segundo
-    private const float HalfW = 10, HalfH = 10;
+    private const float VelocidadePorSegundo = 90f; // reduzida para menor sensibilidade
+    private const float VelocidadeRotacaoPorSegundo = 2.0f; // reduzida para menor sensibilidade
+    private const float HalfW = 16f, HalfH = 16f; // meia largura/altura base
     private const int PontosParaCrescimento = 200; // A cada 200 pontos a nave cresce
     private const float IncrementoTamanho = 0.1f; // Incremento de 10% no tamanho
 
@@ -65,10 +65,12 @@ public class Nave
             Posicao += direcao * VelocidadePorSegundo * deltaTime;
         }
 
-        // Mantém a nave dentro da tela
+        // Mantém a nave dentro da tela (considerando o tamanho atual)
+        float halfWAtual = HalfW * Tamanho;
+        float halfHAtual = HalfH * Tamanho;
         Posicao = new Vector2(
-            Math.Clamp(Posicao.X, HalfW, largura - HalfW),
-            Math.Clamp(Posicao.Y, HalfH, altura - HalfH)
+            Math.Clamp(Posicao.X, halfWAtual, largura - halfWAtual),
+            Math.Clamp(Posicao.Y, halfHAtual, altura - halfHAtual)
         );
     }
 
