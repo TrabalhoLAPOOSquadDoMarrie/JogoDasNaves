@@ -141,6 +141,7 @@ public class TelaJogo
         _clienteRede.MensagemRecebida += ProcessarMensagem;
         _dificuldadeAtual = dificuldade.ToString();
     }
+    
 
     public void Update(GameTime gameTime)
     {
@@ -1259,6 +1260,14 @@ public class TelaJogo
         // não aceitar entradas (apenas exibir o painel de aguardando)
         if (_pausaEmAndamentoUI && ConfirmadoLocal)
             return;
+
+        if ((_estadoMenuPausa == EstadoMenuPausa.Recordes || _estadoMenuPausa == EstadoMenuPausa.Configuracoes) &&
+        estadoTeclado.IsKeyDown(Keys.M) && !_estadoTecladoAnterior.IsKeyDown(Keys.M))
+        {
+            _estadoMenuPausa = EstadoMenuPausa.Aberto;
+            _somClick?.Play();
+            return;
+        }
 
         // Navegação para cima (W/Up)
         bool upPressed = (estadoTeclado.IsKeyDown(Keys.W) || estadoTeclado.IsKeyDown(Keys.Up)) &&

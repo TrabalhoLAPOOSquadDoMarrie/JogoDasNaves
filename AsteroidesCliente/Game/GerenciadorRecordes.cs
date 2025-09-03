@@ -103,8 +103,13 @@ public class GerenciadorRecordes
     {
         try
         {
-            string json = JsonConvert.SerializeObject(_recordes, Formatting.Indented);
-            File.WriteAllText(ARQUIVO_RECORDES, json);
+            var json = JsonConvert.SerializeObject(_recordes, Formatting.Indented);
+
+            // O 'using' garante que o arquivo seja fechado automaticamente
+            using (var writer = new StreamWriter("recordes.json"))
+            {
+                writer.Write(json);
+            }
         }
         catch (Exception ex)
         {

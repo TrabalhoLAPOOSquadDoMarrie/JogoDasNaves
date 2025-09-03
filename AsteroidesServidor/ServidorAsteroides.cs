@@ -18,7 +18,7 @@ public class ServidorAsteroides
     private readonly HashSet<int> _votosReinicio = new(); // IDs dos jogadores que votaram para reiniciar
     
     private bool _rodando = false;  
-    private int _proximoIdJogador = 1;
+    private int _proximoIdJogador = 0;
     private const int PortaPadrao = 8890;
     private const int TicksPerSecond = 144; // 144 FPS para alta performance
     private const int TickInterval = 1000 / TicksPerSecond;
@@ -163,8 +163,9 @@ public class ServidorAsteroides
                     NomeJogador = cliente.Nome
                 });
                 
+                await cliente.EnviarMensagemAsync(_estadoJogo.ObterEstadoJogo());
                 // Adiciona nave ao jogo
-                _estadoJogo.AdicionarNave(cliente.Id);
+                    _estadoJogo.AdicionarNave(cliente.Id);
                 
                 // Notifica todos os outros clientes
                 await BroadcastMensagemAsync(new MensagemJogadorConectado
